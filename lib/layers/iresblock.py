@@ -51,7 +51,7 @@ class iResBlock(nn.Module):
         self.register_buffer('last_firmom', torch.zeros(1))
         self.register_buffer('last_secmom', torch.zeros(1))
 
-    def forward(self, x, logpx=None):
+    def forward(self, x, logpx=None, restore=False):
         if logpx is None:
             y = x + self.nnet(x)
             return y

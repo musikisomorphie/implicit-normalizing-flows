@@ -187,16 +187,16 @@ class ResidualFlow(nn.Module):
         self.classification_heads = nn.ModuleList(classification_heads)
         self.logit_layer = nn.Linear(self.classification_hdim * len(classification_heads), self.n_classes)
 
-    def forward(self, x, logpx=None, inverse=False, classify=False):
+    def forward(self, x, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
             return self.inverse(x, logpx)
         out = []
         if classify: class_outs = []
         for idx in range(len(self.transforms)):
             if logpx is not None:
-                x, logpx = self.transforms[idx].forward(x, logpx)
+                x, logpx = self.transforms[idx].forward(x, logpx, restore=restore)
             else:
-                x = self.transforms[idx].forward(x)
+                x = self.transforms[idx].forward(x, restore=restore)
             if self.factor_out and (idx < len(self.transforms) - 1):
                 d = x.size(1) // 2
                 x, f = x[:, :d], x[:, d:]
@@ -451,7 +451,7 @@ class FCNet(nn.Module):
         )
         self.nnet = nn.Sequential(*nnet)
 
-    def forward(self, x):
+    def forward(self, x, restore=False):
         x = x.view(x.shape[0], -1)
         y = self.nnet(x)
         return y.view(y.shape[0], *self.input_shape)
@@ -463,7 +463,7 @@ class FCWrapper(nn.Module):
         super(FCWrapper, self).__init__()
         self.fc_module = fc_module
 
-    def forward(self, x, logpx=None):
+    def forward(self, x, logpx=None, restore=False):
         shape = x.shape
         x = x.view(x.shape[0], -1)
         if logpx is None:

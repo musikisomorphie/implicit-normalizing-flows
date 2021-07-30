@@ -30,7 +30,7 @@ class Normalize(nn.Module):
         self.register_buffer('mean', torch.as_tensor(mean, dtype=torch.float32))
         self.register_buffer('std', torch.as_tensor(std, dtype=torch.float32))
 
-    def forward(self, x, logpx=None):
+    def forward(self, x, logpx=None, restore=False):
         y = x.clone()
         c = len(self.mean)
         y[:, :c].sub_(self.mean[None, :, None, None]).div_(self.std[None, :, None, None])
