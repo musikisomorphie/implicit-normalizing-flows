@@ -1,13 +1,15 @@
 import torch
 import torchvision.datasets as vdsets
+from torch.utils.data.dataset import Dataset
 
 
-class Dataset(object):
+class CustomData(object):
 
     def __init__(self, loc, transform=None, in_mem=True):
         self.in_mem = in_mem
         self.dataset = torch.load(loc)
-        if in_mem: self.dataset = self.dataset.float().div(255)
+        if in_mem:
+            self.dataset = self.dataset.float().div(255)
         self.transform = transform
 
     def __len__(self):
@@ -19,7 +21,8 @@ class Dataset(object):
 
     def __getitem__(self, index):
         x = self.dataset[index]
-        if not self.in_mem: x = x.float().div(255)
+        if not self.in_mem:
+            x = x.float().div(255)
         x = self.transform(x) if self.transform is not None else x
         return x, 0
 
@@ -27,7 +30,8 @@ class Dataset(object):
 class MNIST(object):
 
     def __init__(self, dataroot, train=True, transform=None):
-        self.mnist = vdsets.MNIST(dataroot, train=train, download=True, transform=transform)
+        self.mnist = vdsets.MNIST(
+            dataroot, train=train, download=True, transform=transform)
 
     def __len__(self):
         return len(self.mnist)
@@ -43,7 +47,8 @@ class MNIST(object):
 class CIFAR10(object):
 
     def __init__(self, dataroot, train=True, transform=None):
-        self.cifar10 = vdsets.CIFAR10(dataroot, train=train, download=True, transform=transform)
+        self.cifar10 = vdsets.CIFAR10(
+            dataroot, train=train, download=True, transform=transform)
 
     def __len__(self):
         return len(self.cifar10)
@@ -79,7 +84,7 @@ class CelebA5bit(object):
         return x, 0
 
 
-class CelebAHQ(Dataset):
+class CelebAHQ(CustomData):
     TRAIN_LOC = 'data/celebahq/celeba256_train.pth'
     TEST_LOC = 'data/celebahq/celeba256_validation.pth'
 
@@ -87,7 +92,7 @@ class CelebAHQ(Dataset):
         return super(CelebAHQ, self).__init__(self.TRAIN_LOC if train else self.TEST_LOC, transform)
 
 
-class Imagenet32(Dataset):
+class Imagenet32(CustomData):
     TRAIN_LOC = 'data/imagenet32/train_32x32.pth'
     TEST_LOC = 'data/imagenet32/valid_32x32.pth'
 
@@ -95,9 +100,59 @@ class Imagenet32(Dataset):
         return super(Imagenet32, self).__init__(self.TRAIN_LOC if train else self.TEST_LOC, transform)
 
 
-class Imagenet64(Dataset):
+class Imagenet64(CustomData):
     TRAIN_LOC = 'data/imagenet64/train_64x64.pth'
     TEST_LOC = 'data/imagenet64/valid_64x64.pth'
 
     def __init__(self, train=True, transform=None):
         return super(Imagenet64, self).__init__(self.TRAIN_LOC if train else self.TEST_LOC, transform, in_mem=False)
+
+
+class SCRC(Dataset):
+    def __init__(self,
+                 scrc_path,
+                 scrc_in=None,
+                 scrc_out=None,
+                 transforms=None):
+        self.imgs, self.labs = torch.load(str(scrc_path))
+        # for i in range(5):
+        #     print(torch.amin(self.imgs[:, i, :, :]),
+        #           torch.amax(self.imgs[:, i, :, :]))
+
+        if scrc_in is not None:
+            self.imgs = self.imgs[:, scrc_in, :, :].float().div(255)
+
+        if scrc_out is not None:
+            if not isinstance(scrc_out, str):
+                raise TypeError('The outcome {} is not a string.'.
+                                format(scrc_out))
+            scrc_out = scrc_out.lower()
+            if scrc_out == 'os':
+                self.labs = self.labs[:, -8:-6]
+            elif scrc_out == 'dfs':
+                self.labs = self.labs[:, -6:-4]
+            elif scrc_out == 'cms':
+                self.labs = self.labs[:, -4:]
+                self.labs = torch.argmax(self.labs, dim=1)
+            else:
+                raise ValueError('The outcome {} is not cms, os or dfs.'.
+                                 format(scrc_out))
+
+        assert self.imgs.shape[0] == self.labs.shape[0]
+        self.len, self.chn = list(self.imgs.shape[:2])
+
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        img = self.imgs[index, ]
+        # lab = self.labs[index, ]
+        if self.transforms is not None:
+            img = self.transforms(img)
+        return img, 0
+
+    @property
+    def ndim(self):
+        return self.chn
+
+    def __len__(self):
+        return self.len
