@@ -454,11 +454,13 @@ elif args.data == 'scrc':
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batchsize,
                                                shuffle=True,
-                                               num_workers=args.nworkers)
+                                               num_workers=args.nworkers,
+                                               drop_last=True)
     test_loader = torch.utils.data.DataLoader(test_data,
                                               batch_size=args.val_batchsize,
                                               shuffle=False,
-                                              num_workers=args.nworkers)
+                                              num_workers=args.nworkers,
+                                              drop_last=True)
 
 if args.task in ['classification', 'hybrid']:
     try:
