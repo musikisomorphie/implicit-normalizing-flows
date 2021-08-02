@@ -260,6 +260,7 @@ class imBlock(nn.Module):
         x = RootFind.apply(self.nnet_x, self.nnet_z, x0, z,
                            'broyden', self.eps_sample, self.threshold)
         # x = RootFind.apply(self.nnet_x, self.nnet_z, x0, z, 'banach', self.eps_sample, self.threshold)
+        print(list(self.nnet_x.state_dict().keys()))
         if logpy is None:
             return x
         else:
@@ -380,6 +381,7 @@ class imBlock(nn.Module):
                     estimator).to(self.last_firmom))
                 self.last_secmom.copy_(torch.mean(
                     estimator**2).to(self.last_secmom))
+            
             return logdetgrad.view(-1, 1)
 
     def extra_repr(self):
