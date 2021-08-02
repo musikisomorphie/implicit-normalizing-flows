@@ -34,7 +34,7 @@ parser.add_argument(
         'scrc'
     ]
 )
-parser.add_argument('--classifier', type=str, default='resnet', 
+parser.add_argument('--classifier', type=str, default='resnet',
                     choices=['resnet', 'densenet'])
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--dataroot', type=str, default='data')
@@ -451,11 +451,13 @@ elif args.data == 'scrc':
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batchsize,
                                                shuffle=True,
-                                               num_workers=args.nworkers)
+                                               num_workers=args.nworkers,
+                                               drop_last=True)
     test_loader = torch.utils.data.DataLoader(test_data,
                                               batch_size=args.val_batchsize,
                                               shuffle=False,
-                                              num_workers=args.nworkers)
+                                              num_workers=args.nworkers,
+                                              drop_last=True)
 
 if args.task in ['classification', 'hybrid']:
     try:
@@ -513,7 +515,7 @@ model = ResidualFlow(
     classification_hdim=args.cdim,
     n_classes=n_classes,
     block_type=args.block,
-    classifier = args.classifier
+    classifier=args.classifier
 )
 
 model.to(device)

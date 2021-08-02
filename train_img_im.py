@@ -6,7 +6,7 @@ import os.path
 import numpy as np
 from tqdm import tqdm
 import gc
-
+import pathlib
 import torch
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -31,71 +31,99 @@ parser.add_argument(
         'celeba_5bit',
         'imagenet32',
         'imagenet64',
+        'scrc'
     ]
 )
-parser.add_argument('--dataroot', type=str, default='data')
+parser.add_argument('--classifier', type=str, default='resnet',
+                    choices=['resnet', 'densenet'])
 parser.add_argument('--imagesize', type=int, default=32)
+parser.add_argument('--dataroot', type=str, default='data')
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
 
 parser.add_argument('--coeff', type=float, default=0.98)
 parser.add_argument('--vnorms', type=str, default='2222')
 parser.add_argument('--n-lipschitz-iters', type=int, default=None)
 parser.add_argument('--sn-tol', type=float, default=1e-3)
-parser.add_argument('--learn-p', type=eval, choices=[True, False], default=False)
+parser.add_argument('--learn-p', type=eval,
+                    choices=[True, False], default=False)
 
 parser.add_argument('--n-power-series', type=int, default=None)
-parser.add_argument('--factor-out', type=eval, choices=[True, False], default=False)
-parser.add_argument('--n-dist', choices=['geometric', 'poisson'], default='poisson')
+parser.add_argument('--factor-out', type=eval,
+                    choices=[True, False], default=False)
+parser.add_argument(
+    '--n-dist', choices=['geometric', 'poisson'], default='poisson')
 parser.add_argument('--n-samples', type=int, default=1)
 parser.add_argument('--n-exact-terms', type=int, default=2)
 parser.add_argument('--var-reduc-lr', type=float, default=0)
-parser.add_argument('--neumann-grad', type=eval, choices=[True, False], default=True)
-parser.add_argument('--mem-eff', type=eval, choices=[True, False], default=True)
+parser.add_argument('--neumann-grad', type=eval,
+                    choices=[True, False], default=True)
+parser.add_argument('--mem-eff', type=eval,
+                    choices=[True, False], default=True)
 
 parser.add_argument('--act', type=str, choices=ACT_FNS.keys(), default='sin')
 parser.add_argument('--idim', type=int, default=512)
 parser.add_argument('--nblocks', type=str, default='16-16-16')
-parser.add_argument('--squeeze-first', type=eval, default=False, choices=[True, False])
-parser.add_argument('--actnorm', type=eval, default=True, choices=[True, False])
-parser.add_argument('--fc-actnorm', type=eval, default=False, choices=[True, False])
-parser.add_argument('--batchnorm', type=eval, default=False, choices=[True, False])
+parser.add_argument('--squeeze-first', type=eval,
+                    default=False, choices=[True, False])
+parser.add_argument('--actnorm', type=eval,
+                    default=True, choices=[True, False])
+parser.add_argument('--fc-actnorm', type=eval,
+                    default=False, choices=[True, False])
+parser.add_argument('--batchnorm', type=eval,
+                    default=False, choices=[True, False])
 parser.add_argument('--dropout', type=float, default=0.)
 parser.add_argument('--fc', type=eval, default=False, choices=[True, False])
 parser.add_argument('--kernels', type=str, default='3-1-3')
-parser.add_argument('--add-noise', type=eval, choices=[True, False], default=True)
-parser.add_argument('--quadratic', type=eval, choices=[True, False], default=False)
+parser.add_argument('--add-noise', type=eval,
+                    choices=[True, False], default=True)
+parser.add_argument('--quadratic', type=eval,
+                    choices=[True, False], default=False)
 parser.add_argument('--fc-end', type=eval, choices=[True, False], default=True)
 parser.add_argument('--fc-idim', type=int, default=128)
-parser.add_argument('--preact', type=eval, choices=[True, False], default=False)
+parser.add_argument('--preact', type=eval,
+                    choices=[True, False], default=False)
 parser.add_argument('--padding', type=int, default=0)
-parser.add_argument('--first-resblock', type=eval, choices=[True, False], default=True)
+parser.add_argument('--first-resblock', type=eval,
+                    choices=[True, False], default=True)
 parser.add_argument('--cdim', type=int, default=256)
 
-parser.add_argument('--optimizer', type=str, choices=['adam', 'adamax', 'rmsprop', 'sgd'], default='adam')
-parser.add_argument('--scheduler', type=eval, choices=[True, False], default=False)
-parser.add_argument('--nepochs', help='Number of epochs for training', type=int, default=1000)
+parser.add_argument('--optimizer', type=str,
+                    choices=['adam', 'adamax', 'rmsprop', 'sgd'], default='adam')
+parser.add_argument('--scheduler', type=eval,
+                    choices=[True, False], default=False)
+parser.add_argument(
+    '--nepochs', help='Number of epochs for training', type=int, default=1000)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 parser.add_argument('--lr', help='Learning rate', type=float, default=1e-3)
 parser.add_argument('--wd', help='Weight decay', type=float, default=0)
 parser.add_argument('--warmup-iters', type=int, default=1000)
 parser.add_argument('--annealing-iters', type=int, default=0)
-parser.add_argument('--save', help='directory to save results', type=str, default='experiment1')
-parser.add_argument('--val-batchsize', help='minibatch size', type=int, default=200)
+parser.add_argument('--save', help='directory to save results',
+                    type=str, default='experiment1')
+parser.add_argument('--val-batchsize',
+                    help='minibatch size', type=int, default=200)
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--ema-val', type=eval, choices=[True, False], default=True)
+parser.add_argument('--ema-val', type=eval,
+                    choices=[True, False], default=True)
 parser.add_argument('--update-freq', type=int, default=1)
 
-parser.add_argument('--task', type=str, choices=['density', 'classification', 'hybrid'], default='density')
-parser.add_argument('--scale-dim', type=eval, choices=[True, False], default=False)
-parser.add_argument('--rcrop-pad-mode', type=str, choices=['constant', 'reflect'], default='reflect')
-parser.add_argument('--padding-dist', type=str, choices=['uniform', 'gaussian'], default='uniform')
+parser.add_argument('--task', type=str,
+                    choices=['density', 'classification', 'hybrid'], default='density')
+parser.add_argument('--scale-dim', type=eval,
+                    choices=[True, False], default=False)
+parser.add_argument('--rcrop-pad-mode', type=str,
+                    choices=['constant', 'reflect'], default='reflect')
+parser.add_argument('--padding-dist', type=str,
+                    choices=['uniform', 'gaussian'], default='uniform')
 
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
 parser.add_argument('--nworkers', type=int, default=5)
-parser.add_argument('--print-freq', help='Print progress every so iterations', type=int, default=20)
-parser.add_argument('--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
+parser.add_argument(
+    '--print-freq', help='Print progress every so iterations', type=int, default=20)
+parser.add_argument(
+    '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
 args = parser.parse_args()
 
 # Random seed
@@ -104,7 +132,8 @@ if args.seed is None:
 
 # logger
 utils.makedirs(args.save)
-logger = utils.get_logger(logpath=os.path.join(args.save, 'logs'), filepath=os.path.abspath(__file__))
+logger = utils.get_logger(logpath=os.path.join(
+    args.save, 'logs'), filepath=os.path.abspath(__file__))
 logger.info(args)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -114,7 +143,8 @@ if device.type == 'cuda':
     logger.info('Found {} CUDA devices.'.format(torch.cuda.device_count()))
     for i in range(torch.cuda.device_count()):
         props = torch.cuda.get_device_properties(i)
-        logger.info('{} \t Memory: {:.2f}GB'.format(props.name, props.total_memory / (1024**3)))
+        logger.info('{} \t Memory: {:.2f}GB'.format(
+            props.name, props.total_memory / (1024**3)))
 else:
     logger.info('WARNING: Using device {}'.format(device))
 
@@ -181,12 +211,15 @@ def add_padding(x, nvals=256):
     # nvals takes into account the preprocessing before padding is added.
     if args.padding > 0:
         if args.padding_dist == 'uniform':
-            u = x.new_empty(x.shape[0], args.padding, x.shape[2], x.shape[3]).uniform_()
+            u = x.new_empty(x.shape[0], args.padding,
+                            x.shape[2], x.shape[3]).uniform_()
             logpu = torch.zeros_like(u).sum([1, 2, 3]).view(-1, 1)
             return torch.cat([x, u / nvals], dim=1), logpu
         elif args.padding_dist == 'gaussian':
-            u = x.new_empty(x.shape[0], args.padding, x.shape[2], x.shape[3]).normal_(nvals / 2, nvals / 8)
-            logpu = normal_logprob(u, nvals / 2, math.log(nvals / 8)).sum([1, 2, 3]).view(-1, 1)
+            u = x.new_empty(x.shape[0], args.padding, x.shape[2], x.shape[3]).normal_(
+                nvals / 2, nvals / 8)
+            logpu = normal_logprob(
+                u, nvals / 2, math.log(nvals / 8)).sum([1, 2, 3]).view(-1, 1)
             return torch.cat([x, u / nvals], dim=1), logpu
         else:
             raise ValueError()
@@ -199,6 +232,7 @@ def remove_padding(x):
         return x[:, :im_dim, :, :]
     else:
         return x
+
 
 def parallelize(model):
     return torch.nn.DataParallel(model)
@@ -214,7 +248,8 @@ if args.data == 'cifar10':
         # Classification-specific preprocessing.
         transform_train = transforms.Compose([
             transforms.Resize(args.imagesize),
-            transforms.RandomCrop(32, padding=4, padding_mode=args.rcrop_pad_mode),
+            transforms.RandomCrop(
+                32, padding=4, padding_mode=args.rcrop_pad_mode),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             add_noise,
@@ -227,7 +262,8 @@ if args.data == 'cifar10':
         ])
 
         # Remove the logit transform.
-        init_layer = layers.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        init_layer = layers.Normalize(
+            (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     else:
         transform_train = transforms.Compose([
             transforms.Resize(args.imagesize),
@@ -289,7 +325,8 @@ elif args.data == 'svhn':
         vdsets.SVHN(
             args.dataroot, split='train', download=True, transform=transforms.Compose([
                 transforms.Resize(args.imagesize),
-                transforms.RandomCrop(32, padding=4, padding_mode=args.rcrop_pad_mode),
+                transforms.RandomCrop(
+                    32, padding=4, padding_mode=args.rcrop_pad_mode),
                 transforms.ToTensor(),
                 add_noise,
             ])
@@ -388,29 +425,67 @@ elif args.data == 'imagenet64':
             add_noise,
         ])), batch_size=args.val_batchsize, shuffle=False, num_workers=args.nworkers
     )
+elif args.data == 'scrc':
+    im_dim = 3
+    n_classes = 4
+    trn_path = pathlib.Path(args.dataroot) / 'scrc_symm_0.pt'
+    tst_path = pathlib.Path(args.dataroot) / 'scrc_symm_1.pt'
+    init_layer = layers.LogitTransform(0.05)
+
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(args.imagesize),
+        transforms.RandomHorizontalFlip(),
+    ])
+
+    transform_test = transforms.Compose([
+        transforms.CenterCrop(args.imagesize)
+    ])
+
+    train_data = datasets.SCRC(trn_path,
+                               [0, 1, 2],
+                               'cms',
+                               transform_train)
+
+    test_data = datasets.SCRC(tst_path,
+                              [0, 1, 2],
+                              'cms',
+                              transform_test)
+
+    train_loader = torch.utils.data.DataLoader(train_data,
+                                               batch_size=args.batchsize,
+                                               shuffle=True,
+                                               num_workers=args.nworkers)
+    test_loader = torch.utils.data.DataLoader(test_data,
+                                              batch_size=args.val_batchsize,
+                                              shuffle=False,
+                                              num_workers=args.nworkers)
 
 if args.task in ['classification', 'hybrid']:
     try:
         n_classes
     except NameError:
-        raise ValueError('Cannot perform classification with {}'.format(args.data))
+        raise ValueError(
+            'Cannot perform classification with {}'.format(args.data))
 else:
     n_classes = 1
 
 logger.info('Dataset loaded.')
 logger.info('Creating model.')
 
-input_size = (args.batchsize, im_dim + args.padding, args.imagesize, args.imagesize)
+input_size = (args.batchsize, im_dim + args.padding,
+              args.imagesize, args.imagesize)
 dataset_size = len(train_loader.dataset)
 
 if args.squeeze_first:
-    input_size = (input_size[0], input_size[1] * 4, input_size[2] // 2, input_size[3] // 2)
+    input_size = (input_size[0], input_size[1] * 4,
+                  input_size[2] // 2, input_size[3] // 2)
     squeeze_layer = layers.SqueezeLayer(2)
 
 # Model
 model = ImplicitFlow(
     input_size,
-    n_blocks=list(map(int, args.nblocks.split('-'))) if '-' in args.nblocks else [int(args.nblocks)],
+    n_blocks=list(map(int, args.nblocks.split('-'))
+                  ) if '-' in args.nblocks else [int(args.nblocks)],
     intermediate_dim=args.idim,
     factor_out=args.factor_out,
     quadratic=args.quadratic,
@@ -441,6 +516,7 @@ model = ImplicitFlow(
     classification=args.task in ['classification', 'hybrid'],
     classification_hdim=args.cdim,
     n_classes=n_classes,
+    classifier=args.classifier
 )
 
 model.to(device)
@@ -462,14 +538,20 @@ def tensor_in(t, a):
 scheduler = None
 
 if args.optimizer == 'adam':
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=args.wd)
-    if args.scheduler: scheduler = CosineAnnealingWarmRestarts(optimizer, 20, T_mult=2, last_epoch=args.begin_epoch - 1)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr,
+                           betas=(0.9, 0.99), weight_decay=args.wd)
+    if args.scheduler:
+        scheduler = CosineAnnealingWarmRestarts(
+            optimizer, 20, T_mult=2, last_epoch=args.begin_epoch - 1)
 elif args.optimizer == 'adamax':
-    optimizer = optim.Adamax(model.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=args.wd)
+    optimizer = optim.Adamax(model.parameters(), lr=args.lr, betas=(
+        0.9, 0.99), weight_decay=args.wd)
 elif args.optimizer == 'rmsprop':
-    optimizer = optim.RMSprop(model.parameters(), lr=args.lr, weight_decay=args.wd)
+    optimizer = optim.RMSprop(
+        model.parameters(), lr=args.lr, weight_decay=args.wd)
 elif args.optimizer == 'sgd':
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
     if args.scheduler:
         scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, milestones=[60, 120, 160], gamma=0.2, last_epoch=args.begin_epoch - 1
@@ -484,7 +566,8 @@ if (args.resume is not None):
         x = torch.rand(args.batchsize, *input_size[1:]).to(device)
         model(x, restore=True)
     checkpt = torch.load(args.resume)
-    sd = {k: v for k, v in checkpt['state_dict'].items() if 'last_n_samples' not in k}
+    sd = {k: v for k, v in checkpt['state_dict'].items(
+    ) if 'last_n_samples' not in k}
     state = model.state_dict()
     state.update(sd)
     model.load_state_dict(state, strict=True)
@@ -515,7 +598,8 @@ criterion = torch.nn.CrossEntropyLoss()
 
 
 def compute_loss(x, model, beta=1.0):
-    bits_per_dim, logits_tensor = torch.zeros(1).to(x), torch.zeros(n_classes).to(x)
+    bits_per_dim, logits_tensor = torch.zeros(
+        1).to(x), torch.zeros(n_classes).to(x)
     logpz, delta_logp = torch.zeros(1).to(x), torch.zeros(1).to(x)
 
     if args.data == 'celeba_5bit':
@@ -531,7 +615,8 @@ def compute_loss(x, model, beta=1.0):
         x = squeeze_layer(x)
 
     if args.task == 'hybrid':
-        z_logp, logits_tensor = model(x.view(-1, *input_size[1:]), 0, classify=True)
+        z_logp, logits_tensor = model(
+            x.view(-1, *input_size[1:]), 0, classify=True)
         z, delta_logp = z_logp
     elif args.task == 'density':
         z, delta_logp = model(x.view(-1, *input_size[1:]), 0)
@@ -540,13 +625,16 @@ def compute_loss(x, model, beta=1.0):
 
     if args.task in ['density', 'hybrid']:
         # log p(z)
-        logpz = standard_normal_logprob(z).view(z.size(0), -1).sum(1, keepdim=True)
+        logpz = standard_normal_logprob(z).view(
+            z.size(0), -1).sum(1, keepdim=True)
 
         # log p(x)
         logpx = logpz - beta * delta_logp - np.log(nvals) * (
             args.imagesize * args.imagesize * (im_dim + args.padding)
         ) - logpu
-        bits_per_dim = -torch.mean(logpx) / (args.imagesize * args.imagesize * im_dim) / np.log(2)
+        bits_per_dim = - \
+            torch.mean(logpx) / (args.imagesize *
+                                 args.imagesize * im_dim) / np.log(2)
 
         logpz = torch.mean(logpz).detach()
         delta_logp = torch.mean(-delta_logp).detach()
@@ -609,7 +697,8 @@ def train(epoch, model):
 
         x = x.to(device)
 
-        beta = beta = min(1, global_itr / args.annealing_iters) if args.annealing_iters > 0 else 1.
+        beta = beta = min(1, global_itr /
+                          args.annealing_iters) if args.annealing_iters > 0 else 1.
         bpd, logits, logpz, neg_delta_logp = compute_loss(x, model, beta=beta)
 
         if args.task in ['density', 'hybrid']:
@@ -637,8 +726,10 @@ def train(epoch, model):
         elif args.task == 'classification':
             loss = crossent
         else:
-            if not args.scale_dim: bpd = bpd * (args.imagesize * args.imagesize * im_dim)
-            loss = bpd + crossent / np.log(2)  # Change cross entropy from nats to bits.
+            if not args.scale_dim:
+                bpd = bpd * (args.imagesize * args.imagesize * im_dim)
+            # Change cross entropy from nats to bits.
+            loss = bpd + crossent / np.log(2)
         loss.backward()
 
         if global_itr % args.update_freq == args.update_freq - 1:
@@ -649,8 +740,10 @@ def train(epoch, model):
                         if p.grad is not None:
                             p.grad /= args.update_freq
 
-            grad_norm = torch.nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 1.)
-            if args.learn_p: compute_p_grads(model)
+            grad_norm = torch.nn.utils.clip_grad.clip_grad_norm_(
+                model.parameters(), 1.)
+            if args.learn_p:
+                compute_p_grads(model)
 
             optimizer.step()
             optimizer.zero_grad()
@@ -683,7 +776,8 @@ def train(epoch, model):
                 )
 
             if args.task in ['classification', 'hybrid']:
-                s += ' | CE {ce_meter.avg:.4f} | Acc {0:.4f}'.format(100 * correct / total, ce_meter=ce_meter)
+                s += ' | CE {ce_meter.avg:.4f} | Acc {0:.4f}'.format(
+                    100 * correct / total, ce_meter=ce_meter)
 
             logger.info(s)
         if i % args.vis_freq == 0:
@@ -729,9 +823,11 @@ def validate(epoch, model, ema=None):
 
     if ema is not None:
         ema.swap()
-    s = 'Epoch: [{0}]\tTime {1:.2f} | Test bits/dim {bpd_meter.avg:.4f}'.format(epoch, val_time, bpd_meter=bpd_meter)
+    s = 'Epoch: [{0}]\tTime {1:.2f} | Test bits/dim {bpd_meter.avg:.4f}'.format(
+        epoch, val_time, bpd_meter=bpd_meter)
     if args.task in ['classification', 'hybrid']:
-        s += ' | CE {:.4f} | Acc {:.2f}'.format(ce_meter.avg, 100 * correct / total)
+        s += ' | CE {:.4f} | Acc {:.2f}'.format(
+            ce_meter.avg, 100 * correct / total)
     logger.info(s)
     return bpd_meter.avg
 
@@ -752,21 +848,27 @@ def visualize(epoch, model, itr, real_imgs):
     with torch.no_grad():
         # reconstructed real images
         real_imgs, _ = add_padding(real_imgs, nvals)
-        if args.squeeze_first: real_imgs = squeeze_layer(real_imgs)
-        recon_imgs = model(model(real_imgs.view(-1, *input_size[1:])), inverse=True).view(-1, *input_size[1:])
-        if args.squeeze_first: recon_imgs = squeeze_layer.inverse(recon_imgs)
+        if args.squeeze_first:
+            real_imgs = squeeze_layer(real_imgs)
+        recon_imgs = model(model(
+            real_imgs.view(-1, *input_size[1:])), inverse=True).view(-1, *input_size[1:])
+        if args.squeeze_first:
+            recon_imgs = squeeze_layer.inverse(recon_imgs)
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
         fake_imgs = model(fixed_z, inverse=True).view(-1, *input_size[1:])
-        if args.squeeze_first: fake_imgs = squeeze_layer.inverse(fake_imgs)
+        if args.squeeze_first:
+            fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)
 
         fake_imgs = fake_imgs.view(-1, im_dim, args.imagesize, args.imagesize)
-        recon_imgs = recon_imgs.view(-1, im_dim, args.imagesize, args.imagesize)
+        recon_imgs = recon_imgs.view(-1, im_dim,
+                                     args.imagesize, args.imagesize)
         imgs = torch.cat([_real_imgs, fake_imgs, recon_imgs], 0)
 
-        filename = os.path.join(args.save, 'imgs', 'e{:03d}_i{:06d}.png'.format(epoch, itr))
+        filename = os.path.join(
+            args.save, 'imgs', 'e{:03d}_i{:06d}.png'.format(epoch, itr))
         save_image(imgs.cpu().float(), filename, nrow=16, padding=2)
     model.train()
 
