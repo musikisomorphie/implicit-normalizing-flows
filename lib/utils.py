@@ -1,5 +1,7 @@
 import os
 import math
+import torch.nn as nn
+from torchvision import models
 from numbers import Number
 import logging
 import torch
@@ -167,3 +169,52 @@ class ExponentialMovingAverage(object):
                 self.__class__.__name__, self.decay, self.module.__class__.__name__, self.nparams
             )
         )
+
+
+def initialize_model(model_name,
+                     num_classes,
+                     use_pretrained=False):
+    """Select the model with `model name'
+
+    Args:
+        num_classes: number of class
+        num_pred: number of prediction data
+        use_pretrained: True: load pretrained model, False: not load
+
+    Returns:
+        the initialized model
+    """
+
+    model_ft = None
+    model_name = model_name.lower()
+    if model_name == "resnet":
+        """ Resnet50
+        """
+        model_ft = models.resnet18(pretrained=use_pretrained)
+        num_ftrs = model_ft.fc.in_features
+        model_ft.fc = nn.Linear(num_ftrs, num_classes)
+
+    elif model_name == "densenet":
+        """ Densenet121
+        """
+        model_ft = models.densenet121(pretrained=use_pretrained)
+        num_ftrs = model_ft.classifier.in_features
+        model_ft.classifier = nn.Linear(num_ftrs, num_classes)
+
+    elif model_name == "mobilenet":
+        """ mobilenet v2
+        """
+        model_ft = models.mobilenet_v2(pretrained=use_pretrained)
+        num_ftrs = model_ft.classifier[1].in_features
+        model_ft.classifier[1] = nn.Linear(num_ftrs, num_classes)
+
+    elif model_name == "shufflenet":
+        """ shufflenet v2
+        """
+        model_ft = models.shufflenet_v2_x2_0(pretrained=use_pretrained)
+        num_ftrs = model_ft.fc.in_features
+        model_ft.fc = nn.Linear(num_ftrs, num_classes)
+    else:
+        raise ValueError('Invalid model name {}'.format(model_name))
+
+    return model_ft

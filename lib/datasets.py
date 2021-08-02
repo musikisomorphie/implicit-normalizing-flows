@@ -121,6 +121,8 @@ class SCRC(Dataset):
 
         if scrc_in is not None:
             self.imgs = self.imgs[:, scrc_in, :, :].float().div(255)
+        else:
+            self.imgs = self.imgs[:, scrc_in, :, :].float()
 
         if scrc_out is not None:
             if not isinstance(scrc_out, str):
@@ -128,15 +130,18 @@ class SCRC(Dataset):
                                 format(scrc_out))
             scrc_out = scrc_out.lower()
             if scrc_out == 'os':
-                self.labs = self.labs[:, -8:-6]
+                self.labs = self.labs[:, -8:-6].float()
             elif scrc_out == 'dfs':
-                self.labs = self.labs[:, -6:-4]
+                self.labs = self.labs[:, -6:-4].float()
             elif scrc_out == 'cms':
                 self.labs = self.labs[:, -4:]
                 self.labs = torch.argmax(self.labs, dim=1)
+                print(torch.amin(self.labs), torch.amax(self.labs))
             else:
                 raise ValueError('The outcome {} is not cms, os or dfs.'.
                                  format(scrc_out))
+        else:
+            self.labs = self.labs.float()
 
         assert self.imgs.shape[0] == self.labs.shape[0]
         self.len, self.chn = list(self.imgs.shape[:2])
@@ -145,10 +150,10 @@ class SCRC(Dataset):
 
     def __getitem__(self, index):
         img = self.imgs[index, ]
-        # lab = self.labs[index, ]
+        lab = self.labs[index, ]
         if self.transforms is not None:
             img = self.transforms(img)
-        return img, 0
+        return img, lab
 
     @property
     def ndim(self):

@@ -34,6 +34,8 @@ parser.add_argument(
         'scrc'
     ]
 )
+parser.add_argument('--classifier', type=str, default='resnet', 
+                    choices=['resnet', 'densenet'])
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--dataroot', type=str, default='data')
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
@@ -422,6 +424,7 @@ elif args.data == 'imagenet64':
     )
 elif args.data == 'scrc':
     im_dim = 3
+    n_classes = 4
     trn_path = pathlib.Path(args.dataroot) / 'scrc_symm_0.pt'
     tst_path = pathlib.Path(args.dataroot) / 'scrc_symm_1.pt'
     init_layer = layers.LogitTransform(0.05)
@@ -510,6 +513,7 @@ model = ResidualFlow(
     classification_hdim=args.cdim,
     n_classes=n_classes,
     block_type=args.block,
+    classifier = args.classifier
 )
 
 model.to(device)

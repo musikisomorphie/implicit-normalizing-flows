@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
+import lib.utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
 
@@ -52,6 +52,7 @@ class ResidualFlow(nn.Module):
         classification_hdim=64,
         n_classes=10,
         block_type='resblock',
+        classifier='resnet'
     ):
         super(ResidualFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -87,16 +88,19 @@ class ResidualFlow(nn.Module):
         self.classification_hdim = classification_hdim
         self.n_classes = n_classes
         self.block_type = block_type
+        self.model_name = classifier
 
         if not self.n_scale > 0:
-            raise ValueError('Could not compute number of scales for input of' 'size (%d,%d,%d,%d)' % input_size)
+            raise ValueError(
+                'Could not compute number of scales for input of' 'size (%d,%d,%d,%d)' % input_size)
 
         self.transforms = self._build_net(input_size)
 
         self.dims = [o[1:] for o in self.calc_output_size(input_size)]
 
         if self.classification:
-            self.build_multiscale_classifier(input_size)
+            self.build_classifier()
+            # self.build_multiscale_classifier(input_size)
 
     def _build_net(self, input_size):
         _, c, h, w = input_size
@@ -185,16 +189,23 @@ class ResidualFlow(nn.Module):
                 )
             )
         self.classification_heads = nn.ModuleList(classification_heads)
-        self.logit_layer = nn.Linear(self.classification_hdim * len(classification_heads), self.n_classes)
+        self.logit_layer = nn.Linear(
+            self.classification_hdim * len(classification_heads), self.n_classes)
 
-    def forward(self, x, logpx=None, inverse=False, classify=False, restore=False):
+    def build_classifier(self):
+        self.classifier = utils.initialize_model(self.model_name,
+                                                 self.n_classes)
+
+    def forward1(self, x, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
             return self.inverse(x, logpx)
         out = []
-        if classify: class_outs = []
+        if classify:
+            class_outs = []
         for idx in range(len(self.transforms)):
             if logpx is not None:
-                x, logpx = self.transforms[idx].forward(x, logpx, restore=restore)
+                x, logpx = self.transforms[idx].forward(
+                    x, logpx, restore=restore)
             else:
                 x = self.transforms[idx].forward(x, restore=restore)
             if self.factor_out and (idx < len(self.transforms) - 1):
@@ -219,6 +230,31 @@ class ResidualFlow(nn.Module):
         else:
             return output
 
+    def forward(self, x, logpx=None, inverse=False, classify=False, restore=False):
+        if inverse:
+            return self.inverse(x, logpx)
+        out = []
+        if classify:
+            logits = self.classifier(x)
+        for idx in range(len(self.transforms)):
+            if logpx is not None:
+                x, logpx = self.transforms[idx].forward(
+                    x, logpx, restore=restore)
+            else:
+                x = self.transforms[idx].forward(x, restore=restore)
+            if self.factor_out and (idx < len(self.transforms) - 1):
+                d = x.size(1) // 2
+                x, f = x[:, :d], x[:, d:]
+                out.append(f)
+
+        out.append(x)
+        out = torch.cat([o.view(o.size()[0], -1) for o in out], 1)
+        output = out if logpx is None else (out, logpx)
+        if classify:
+            return output, logits
+        else:
+            return output
+
     def inverse(self, z, logpz=None):
         if self.factor_out:
             z = z.view(z.shape[0], -1)
@@ -228,7 +264,8 @@ class ResidualFlow(nn.Module):
                 s = np.prod(dims)
                 zs.append(z[:, i:i + s])
                 i += s
-            zs = [_z.view(_z.size()[0], *zsize) for _z, zsize in zip(zs, self.dims)]
+            zs = [_z.view(_z.size()[0], *zsize)
+                  for _z, zsize in zip(zs, self.dims)]
 
             if logpz is None:
                 z_prev = self.transforms[-1].inverse(zs[-1])
@@ -346,14 +383,16 @@ class StackediResBlocks(layers.SequentialFlow):
             else:
                 ks = list(map(int, kernels.split('-')))
                 if learn_p:
-                    _domains = [nn.Parameter(torch.tensor(0.)) for _ in range(len(ks))]
+                    _domains = [nn.Parameter(torch.tensor(0.))
+                                for _ in range(len(ks))]
                     _codomains = _domains[1:] + [_domains[0]]
                 else:
                     _domains = domains
                     _codomains = codomains
                 nnet = []
                 if not first_resblock and preact:
-                    if batchnorm: nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                    if batchnorm:
+                        nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
                     nnet.append(ACT_FNS[activation_fn](False))
                 nnet.append(
                     _lipschitz_layer(fc)(
@@ -361,25 +400,30 @@ class StackediResBlocks(layers.SequentialFlow):
                         domain=_domains[0], codomain=_codomains[0], atol=sn_atol, rtol=sn_rtol
                     )
                 )
-                if batchnorm: nnet.append(layers.MovingBatchNorm2d(idim))
+                if batchnorm:
+                    nnet.append(layers.MovingBatchNorm2d(idim))
                 nnet.append(ACT_FNS[activation_fn](True))
                 for i, k in enumerate(ks[1:-1]):
                     nnet.append(
                         _lipschitz_layer(fc)(
                             idim, idim, k, 1, k // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
-                            domain=_domains[i + 1], codomain=_codomains[i + 1], atol=sn_atol, rtol=sn_rtol
+                            domain=_domains[i + 1], codomain=_codomains[i +
+                                                                        1], atol=sn_atol, rtol=sn_rtol
                         )
                     )
-                    if batchnorm: nnet.append(layers.MovingBatchNorm2d(idim))
+                    if batchnorm:
+                        nnet.append(layers.MovingBatchNorm2d(idim))
                     nnet.append(ACT_FNS[activation_fn](True))
-                if dropout: nnet.append(nn.Dropout2d(dropout, inplace=True))
+                if dropout:
+                    nnet.append(nn.Dropout2d(dropout, inplace=True))
                 nnet.append(
                     _lipschitz_layer(fc)(
                         idim, initial_size[0], ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
                         domain=_domains[-1], codomain=_codomains[-1], atol=sn_atol, rtol=sn_rtol
                     )
                 )
-                if batchnorm: nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                if batchnorm:
+                    nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
                 return layers.iResBlock(
                     nn.Sequential(*nnet),
                     n_power_series=n_power_series,
@@ -390,29 +434,40 @@ class StackediResBlocks(layers.SequentialFlow):
                     grad_in_forward=grad_in_forward,
                 )
 
-        if init_layer is not None: chain.append(init_layer)
-        if first_resblock and actnorm: chain.append(_actnorm(initial_size, fc))
-        if first_resblock and fc_actnorm: chain.append(_actnorm(initial_size, True))
+        if init_layer is not None:
+            chain.append(init_layer)
+        if first_resblock and actnorm:
+            chain.append(_actnorm(initial_size, fc))
+        if first_resblock and fc_actnorm:
+            chain.append(_actnorm(initial_size, True))
 
         if squeeze:
             c, h, w = initial_size
             for i in range(n_blocks):
-                if quadratic: chain.append(_quadratic_layer(initial_size, fc))
-                chain.append(_resblock(initial_size, fc, first_resblock=first_resblock and (i == 0)))
-                if actnorm: chain.append(_actnorm(initial_size, fc))
-                if fc_actnorm: chain.append(_actnorm(initial_size, True))
+                if quadratic:
+                    chain.append(_quadratic_layer(initial_size, fc))
+                chain.append(_resblock(initial_size, fc,
+                                       first_resblock=first_resblock and (i == 0)))
+                if actnorm:
+                    chain.append(_actnorm(initial_size, fc))
+                if fc_actnorm:
+                    chain.append(_actnorm(initial_size, True))
             chain.append(layers.SqueezeLayer(2))
         else:
             for _ in range(n_blocks):
-                if quadratic: chain.append(_quadratic_layer(initial_size, fc))
+                if quadratic:
+                    chain.append(_quadratic_layer(initial_size, fc))
                 chain.append(_resblock(initial_size, fc))
-                if actnorm: chain.append(_actnorm(initial_size, fc))
-                if fc_actnorm: chain.append(_actnorm(initial_size, True))
+                if actnorm:
+                    chain.append(_actnorm(initial_size, fc))
+                if fc_actnorm:
+                    chain.append(_actnorm(initial_size, True))
             # Use four fully connected layers at the end.
             if fc_end:
                 for _ in range(fc_nblocks):
                     chain.append(_resblock(initial_size, True, fc_idim))
-                    if actnorm or fc_actnorm: chain.append(_actnorm(initial_size, True))
+                    if actnorm or fc_actnorm:
+                        chain.append(_actnorm(initial_size, True))
 
         super(StackediResBlocks, self).__init__(chain)
 
@@ -429,20 +484,24 @@ class FCNet(nn.Module):
         dim = c * h * w
         nnet = []
         last_dim = dim // div_in
-        if preact: nnet.append(ACT_FNS[activation_fn](False))
+        if preact:
+            nnet.append(ACT_FNS[activation_fn](False))
         if learn_p:
-            domains = [nn.Parameter(torch.tensor(0.)) for _ in range(len(domains))]
+            domains = [nn.Parameter(torch.tensor(0.))
+                       for _ in range(len(domains))]
             codomains = domains[1:] + [domains[0]]
         for i in range(nhidden):
             nnet.append(
                 lipschitz_layer(last_dim, idim) if lipschitz_layer == nn.Linear else lipschitz_layer(
-                    last_dim, idim, coeff=coeff, n_iterations=n_iterations, domain=domains[i], codomain=codomains[i],
+                    last_dim, idim, coeff=coeff, n_iterations=n_iterations, domain=domains[
+                        i], codomain=codomains[i],
                     atol=sn_atol, rtol=sn_rtol
                 )
             )
             nnet.append(ACT_FNS[activation_fn](True))
             last_dim = idim
-        if dropout: nnet.append(nn.Dropout(dropout, inplace=True))
+        if dropout:
+            nnet.append(nn.Dropout(dropout, inplace=True))
         nnet.append(
             lipschitz_layer(last_dim, dim) if lipschitz_layer == nn.Linear else lipschitz_layer(
                 last_dim, dim, coeff=coeff, n_iterations=n_iterations, domain=domains[-1], codomain=codomains[-1],
@@ -521,7 +580,8 @@ class StackedCouplingBlocks(layers.SequentialFlow):
     ):
 
         # yapf: disable
-        class nonloc_scope: pass
+        class nonloc_scope:
+            pass
         nonloc_scope.swap = True
         # yapf: enable
 
@@ -587,43 +647,61 @@ class StackedCouplingBlocks(layers.SequentialFlow):
 
                 nnet = []
                 if not first_resblock and preact:
-                    if batchnorm: nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                    if batchnorm:
+                        nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
                     nnet.append(ACT_FNS[activation_fn](False))
-                nnet.append(_weight_layer(fc)(initial_size[0] // div_in, idim, ks[0], 1, ks[0] // 2))
-                if batchnorm: nnet.append(layers.MovingBatchNorm2d(idim))
+                nnet.append(_weight_layer(fc)(
+                    initial_size[0] // div_in, idim, ks[0], 1, ks[0] // 2))
+                if batchnorm:
+                    nnet.append(layers.MovingBatchNorm2d(idim))
                 nnet.append(ACT_FNS[activation_fn](True))
                 for i, k in enumerate(ks[1:-1]):
                     nnet.append(_weight_layer(fc)(idim, idim, k, 1, k // 2))
-                    if batchnorm: nnet.append(layers.MovingBatchNorm2d(idim))
+                    if batchnorm:
+                        nnet.append(layers.MovingBatchNorm2d(idim))
                     nnet.append(ACT_FNS[activation_fn](True))
-                if dropout: nnet.append(nn.Dropout2d(dropout, inplace=True))
-                nnet.append(_weight_layer(fc)(idim, initial_size[0] * mult_out, ks[-1], 1, ks[-1] // 2))
-                if batchnorm: nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                if dropout:
+                    nnet.append(nn.Dropout2d(dropout, inplace=True))
+                nnet.append(_weight_layer(fc)(
+                    idim, initial_size[0] * mult_out, ks[-1], 1, ks[-1] // 2))
+                if batchnorm:
+                    nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
 
                 return _block(initial_size[0], nn.Sequential(*nnet), mask_type=_mask_type)
 
-        if init_layer is not None: chain.append(init_layer)
-        if first_resblock and actnorm: chain.append(_actnorm(initial_size, fc))
-        if first_resblock and fc_actnorm: chain.append(_actnorm(initial_size, True))
+        if init_layer is not None:
+            chain.append(init_layer)
+        if first_resblock and actnorm:
+            chain.append(_actnorm(initial_size, fc))
+        if first_resblock and fc_actnorm:
+            chain.append(_actnorm(initial_size, True))
 
         if squeeze:
             c, h, w = initial_size
             for i in range(n_blocks):
-                if quadratic: chain.append(_quadratic_layer(initial_size, fc))
-                chain.append(_resblock(initial_size, fc, first_resblock=first_resblock and (i == 0)))
-                if actnorm: chain.append(_actnorm(initial_size, fc))
-                if fc_actnorm: chain.append(_actnorm(initial_size, True))
+                if quadratic:
+                    chain.append(_quadratic_layer(initial_size, fc))
+                chain.append(_resblock(initial_size, fc,
+                                       first_resblock=first_resblock and (i == 0)))
+                if actnorm:
+                    chain.append(_actnorm(initial_size, fc))
+                if fc_actnorm:
+                    chain.append(_actnorm(initial_size, True))
             chain.append(layers.SqueezeLayer(2))
         else:
             for _ in range(n_blocks):
-                if quadratic: chain.append(_quadratic_layer(initial_size, fc))
+                if quadratic:
+                    chain.append(_quadratic_layer(initial_size, fc))
                 chain.append(_resblock(initial_size, fc))
-                if actnorm: chain.append(_actnorm(initial_size, fc))
-                if fc_actnorm: chain.append(_actnorm(initial_size, True))
+                if actnorm:
+                    chain.append(_actnorm(initial_size, fc))
+                if fc_actnorm:
+                    chain.append(_actnorm(initial_size, True))
             # Use four fully connected layers at the end.
             if fc_end:
                 for _ in range(fc_nblocks):
                     chain.append(_resblock(initial_size, True, fc_idim))
-                    if actnorm or fc_actnorm: chain.append(_actnorm(initial_size, True))
+                    if actnorm or fc_actnorm:
+                        chain.append(_actnorm(initial_size, True))
 
         super(StackedCouplingBlocks, self).__init__(chain)
