@@ -237,7 +237,7 @@ class imBlock(nn.Module):
             z0  # For backwarding to parameters in func
         print(self.nnet_x.state_dict().keys())
         print(self.nnet_z.state_dict().keys())
-        print()
+        print(list(self.nnet_x.state_dict().values)[0].get_device())
         self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
         self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
         z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,

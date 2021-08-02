@@ -430,7 +430,7 @@ elif args.data == 'scrc':
     n_classes = 4
     trn_path = pathlib.Path(args.dataroot) / 'scrc_symm_0.pt'
     tst_path = pathlib.Path(args.dataroot) / 'scrc_symm_1.pt'
-    # init_layer = layers.LogitTransform(0.05)
+    init_layer = layers.LogitTransform(0.05)
 
     transform_train = transforms.Compose([
         transforms.RandomCrop(args.imagesize),
