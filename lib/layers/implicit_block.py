@@ -239,11 +239,11 @@ class imBlock(nn.Module):
         for state_id in self.nnet_x_copy.state_dict():
             # print(state_id)
             self.nnet_x_copy.state_dict()[state_id].copy_(
-                self.nnet_x.state_dict()[state_id])
+                self.nnet_x.state_dict()[state_id].cpu())
 
         for state_id in self.nnet_z_copy.state_dict():
             self.nnet_z_copy.state_dict()[state_id].copy_(
-                self.nnet_z.state_dict()[state_id])
+                self.nnet_z.state_dict()[state_id].cpu())
 
         # self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
         # self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
