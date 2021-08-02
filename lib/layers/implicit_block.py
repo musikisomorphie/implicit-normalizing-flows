@@ -169,6 +169,8 @@ class imBlock(nn.Module):
         self.register_buffer('last_n_samples', torch.zeros(self.n_samples))
         self.register_buffer('last_firmom', torch.zeros(1))
         self.register_buffer('last_secmom', torch.zeros(1))
+        self.register_buffer('x_state', self.nnet_x.states_dict())
+        self.register_buffer('z_state', self.nnet_x.states_dict())
 
     class Backward(Function):
         """
@@ -236,6 +238,13 @@ class imBlock(nn.Module):
                            'broyden', self.eps_forward, self.threshold)
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
             z0  # For backwarding to parameters in func
+
+        print(list(self.nnet_x.state_dict().values())[0].get_device())
+        print(self.nnet_x.state_dict().keys())
+        print(self.nnet_z.state_dict().keys())
+
+        self.nnet_x_copy.load_state_dict(self.x_state)
+        self.nnet_z_copy.load_state_dict(self.z_state)
 
         z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,
                                 z, x, 'broyden', self.eps_backward, self.threshold)
