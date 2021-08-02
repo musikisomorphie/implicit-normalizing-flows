@@ -1,4 +1,5 @@
 import math
+from typing import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -234,9 +235,18 @@ class imBlock(nn.Module):
                            'broyden', self.eps_forward, self.threshold)
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
             z0  # For backwarding to parameters in func
-        print(self.nnet_x.state_dict())
-        x_state = {k: v.cpu() for k, v in self.nnet_x.state_dict()}
-        z_state = {k: v.cpu() for k, v in self.nnet_z.state_dict()}
+        # print(self.nnet_x.state_dict())
+        x_state, z_state = OrderedDict(), OrderedDict()
+        for state_id, state in self.nnet_x.state_dict().items():
+            x_state[state_id] = state.cpu()
+        for state_id, state in self.nnet_z.state_dict().items():
+            z_state[state_id] = state.cpu()
+            # print(type(state), state_id, state)
+            # break
+        # print(len(self.nnet_x.state_dict()))
+
+        # x_state = {k: v.cpu() for k, v in self.nnet_x.state_dict()}
+        # z_state = {k: v.cpu() for k, v in self.nnet_z.state_dict()}
         self.nnet_x_copy.load_state_dict(x_state)
         self.nnet_z_copy.load_state_dict(z_state)
         z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,
