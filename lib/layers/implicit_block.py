@@ -239,9 +239,9 @@ class imBlock(nn.Module):
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
             z0  # For backwarding to parameters in func
 
-        print(list(self.nnet_x.state_dict().values())[0].get_device())
-        print(self.nnet_x.state_dict().keys())
-        print(self.nnet_z.state_dict().keys())
+        # print(list(self.nnet_x.state_dict().values())[0].get_device())
+        # print(self.nnet_x.state_dict().keys())
+        # print(self.nnet_z.state_dict().keys())
 
         self.nnet_x_copy.load_state_dict(self.x_state)
         self.nnet_z_copy.load_state_dict(self.z_state)
