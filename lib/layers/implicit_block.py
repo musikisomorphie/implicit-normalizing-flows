@@ -1,5 +1,4 @@
 import math
-from typing import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -140,14 +139,13 @@ class imBlock(nn.Module):
 
         self.nnet_x = nnet_x
         self.nnet_z = nnet_z
-
         self.nnet_x_copy = copy.deepcopy(self.nnet_x)
         self.nnet_z_copy = copy.deepcopy(self.nnet_z)
         for params in self.nnet_x_copy.parameters():
             params.requires_grad_(False)
         for params in self.nnet_z_copy.parameters():
             params.requires_grad_(False)
-        
+
         self.n_dist = n_dist
         self.geom_p = nn.Parameter(torch.tensor(
             np.log(geom_p) - np.log(1. - geom_p))).float()
@@ -169,17 +167,15 @@ class imBlock(nn.Module):
         self.register_buffer('last_n_samples', torch.zeros(self.n_samples))
         self.register_buffer('last_firmom', torch.zeros(1))
         self.register_buffer('last_secmom', torch.zeros(1))
-        self.register_buffer('x_state', self.nnet_x.states_dict())
-        self.register_buffer('z_state', self.nnet_z.states_dict())
 
     class Backward(Function):
         """
         A 'dummy' function that does nothing in the forward pass and perform implicit differentiation
         in the backward pass. Essentially a wrapper that provides backprop for the `imBlock` class.
         You should use this inner class in imBlock's forward() function by calling:
-
+        
             self.Backward.apply(self.func, ...)
-
+            
         """
         @staticmethod
         def forward(ctx, nnet_z, nnet_x, z, x, *args):
@@ -238,14 +234,8 @@ class imBlock(nn.Module):
                            'broyden', self.eps_forward, self.threshold)
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
             z0  # For backwarding to parameters in func
-
-        # print(list(self.nnet_x.state_dict().values())[0].get_device())
-        # print(self.nnet_x.state_dict().keys())
-        # print(self.nnet_z.state_dict().keys())
-
-        self.nnet_x_copy.load_state_dict(self.x_state)
-        self.nnet_z_copy.load_state_dict(self.z_state)
-
+        self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
+        self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
         z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,
                                 z, x, 'broyden', self.eps_backward, self.threshold)
         if logpx is None:
