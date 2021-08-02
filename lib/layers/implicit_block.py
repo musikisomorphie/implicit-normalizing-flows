@@ -170,7 +170,7 @@ class imBlock(nn.Module):
         self.register_buffer('last_firmom', torch.zeros(1))
         self.register_buffer('last_secmom', torch.zeros(1))
         self.register_buffer('x_state', self.nnet_x.states_dict())
-        self.register_buffer('z_state', self.nnet_x.states_dict())
+        self.register_buffer('z_state', self.nnet_z.states_dict())
 
     class Backward(Function):
         """
