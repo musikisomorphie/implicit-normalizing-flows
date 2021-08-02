@@ -183,6 +183,7 @@ class imBlock(nn.Module):
             ctx.nnet_z = nnet_z
             ctx.nnet_x = nnet_x
             ctx.args = args
+            print('a', list(ctx.nnet_x.state_dict().keys()))
             return z
 
         @staticmethod
@@ -237,7 +238,7 @@ class imBlock(nn.Module):
 
         print()
         print(list(self.nnet_x_copy.state_dict().values())[0].get_device())
-        print(list(self.nnet_x.state_dict().values())[0].get_device())
+        print(list(self.nnet_x_copy.state_dict().values())[0].get_device())
         print(list(self.nnet_x_copy.state_dict().keys()))
         print(list(self.nnet_x.state_dict().keys()))
         print()
