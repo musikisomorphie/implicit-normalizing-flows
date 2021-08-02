@@ -453,12 +453,12 @@ class StackedImplicitBlocks(layers.SequentialFlow):
                     grad_in_forward=grad_in_forward,
                 )
 
-        if init_layer is not None:
-            chain.append(init_layer)
-        if first_resblock and actnorm:
-            chain.append(_actnorm(initial_size, fc))
-        if first_resblock and fc_actnorm:
-            chain.append(_actnorm(initial_size, True))
+        # if init_layer is not None:
+        #     chain.append(init_layer)
+        # if first_resblock and actnorm:
+        #     chain.append(_actnorm(initial_size, fc))
+        # if first_resblock and fc_actnorm:
+        #     chain.append(_actnorm(initial_size, True))
 
         if squeeze:
             c, h, w = initial_size
