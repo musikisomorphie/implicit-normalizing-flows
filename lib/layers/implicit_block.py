@@ -139,12 +139,6 @@ class imBlock(nn.Module):
 
         self.nnet_x = nnet_x
         self.nnet_z = nnet_z
-        self.nnet_x_copy = copy.deepcopy(self.nnet_x)
-        self.nnet_z_copy = copy.deepcopy(self.nnet_z)
-        for params in self.nnet_x_copy.parameters():
-            params.requires_grad_(False)
-        for params in self.nnet_z_copy.parameters():
-            params.requires_grad_(False)
 
         self.n_dist = n_dist
         self.geom_p = nn.Parameter(torch.tensor(
@@ -173,9 +167,9 @@ class imBlock(nn.Module):
         A 'dummy' function that does nothing in the forward pass and perform implicit differentiation
         in the backward pass. Essentially a wrapper that provides backprop for the `imBlock` class.
         You should use this inner class in imBlock's forward() function by calling:
-        
+
             self.Backward.apply(self.func, ...)
-            
+
         """
         @staticmethod
         def forward(ctx, nnet_z, nnet_x, z, x, *args):
@@ -225,6 +219,13 @@ class imBlock(nn.Module):
             return (None, None, dl_dh, dl_dx, *grad_args)
 
     def forward(self, x, logpx=None, restore=False):
+        self.nnet_x_copy = copy.deepcopy(self.nnet_x)
+        self.nnet_z_copy = copy.deepcopy(self.nnet_z)
+        for params in self.nnet_x_copy.parameters():
+            params.requires_grad_(False)
+        for params in self.nnet_z_copy.parameters():
+            params.requires_grad_(False)
+
         z0 = x.clone().detach()
         if restore:
             with torch.no_grad():
