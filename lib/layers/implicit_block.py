@@ -234,10 +234,10 @@ class imBlock(nn.Module):
                            'broyden', self.eps_forward, self.threshold)
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
             z0  # For backwarding to parameters in func
-        self.nnet_x_copy.load_state_dict(
-            self.nnet_x.state_dict().to(device='cpu'))
-        self.nnet_z_copy.load_state_dict(
-            self.nnet_z.state_dict().to(device='cpu'))
+        x_state = {k: v.cpu() for k, v in self.nnet_x.state_dict()}
+        z_state = {k: v.cpu() for k, v in self.nnet_z.state_dict()}
+        self.nnet_x_copy.load_state_dict(x_state)
+        self.nnet_z_copy.load_state_dict(z_state)
         z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,
                                 z, x, 'broyden', self.eps_backward, self.threshold)
         if logpx is None:
