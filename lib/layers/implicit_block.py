@@ -140,6 +140,13 @@ class imBlock(nn.Module):
 
         self.nnet_x = nnet_x
         self.nnet_z = nnet_z
+
+        self.nnet_x_copy = copy.deepcopy(self.nnet_x)
+        self.nnet_z_copy = copy.deepcopy(self.nnet_z)
+        for params in self.nnet_x_copy.parameters():
+            params.requires_grad_(False)
+        for params in self.nnet_z_copy.parameters():
+            params.requires_grad_(False)
         
         self.n_dist = n_dist
         self.geom_p = nn.Parameter(torch.tensor(
@@ -220,21 +227,6 @@ class imBlock(nn.Module):
             return (None, None, dl_dh, dl_dx, *grad_args)
 
     def forward(self, x, logpx=None, restore=False):
-        self.nnet_x_copy = copy.deepcopy(self.nnet_x)
-        self.nnet_z_copy = copy.deepcopy(self.nnet_z)
-        for params in self.nnet_x_copy.parameters():
-            params.requires_grad_(False)
-        for params in self.nnet_z_copy.parameters():
-            params.requires_grad_(False)
-
-
-        print(list(self.nnet_x.state_dict().values())[0].get_device())
-        print(self.nnet_x.state_dict().keys())
-        print(self.nnet_z.state_dict().keys())
-
-        self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
-        self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
-
         z0 = x.clone().detach()
         if restore:
             with torch.no_grad():
