@@ -392,7 +392,8 @@ class StackediResBlocks(layers.SequentialFlow):
                 nnet = []
                 if not first_resblock and preact:
                     if batchnorm:
-                        nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                        nnet.append(
+                            layers.MovingBatchNorm2d(initial_size[0]))
                     nnet.append(ACT_FNS[activation_fn](False))
                 nnet.append(
                     _lipschitz_layer(fc)(

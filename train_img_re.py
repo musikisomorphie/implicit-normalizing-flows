@@ -121,7 +121,7 @@ parser.add_argument('--padding-dist', type=str,
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
-parser.add_argument('--nworkers', type=int, default=4)
+parser.add_argument('--nworkers', type=int, default=8)
 parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
@@ -139,6 +139,7 @@ logger = utils.get_logger(logpath=os.path.join(
 logger.info(args)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+torch.backends.cudnn.benchmark = True
 
 if device.type == 'cuda':
     logger.info('Found {} CUDA devices.'.format(torch.cuda.device_count()))
@@ -233,6 +234,10 @@ def remove_padding(x):
         return x[:, :im_dim, :, :]
     else:
         return x
+
+
+def parallelize(model):
+    return torch.nn.DataParallel(model)
 
 
 logger.info('Loading dataset {}'.format(args.data))
@@ -522,10 +527,6 @@ model.to(device)
 ema = utils.ExponentialMovingAverage(model)
 
 
-def parallelize(model):
-    return torch.nn.DataParallel(model)
-
-
 logger.info(model)
 logger.info('EMA: {}'.format(ema))
 
@@ -674,7 +675,6 @@ ce_meter = utils.RunningAverageMeter(0.97)
 
 def train(epoch, model):
 
-    model = parallelize(model)
     model.train()
 
     total = 0
@@ -797,7 +797,6 @@ def validate(epoch, model, ema=None):
 
     update_lipschitz(model)
 
-    model = parallelize(model)
     model.eval()
 
     correct = 0
@@ -910,12 +909,14 @@ def pretty_repr(a):
     return '[[' + ','.join(list(map(lambda i: f'{i:.2f}', a))) + ']]'
 
 
-def main():
+def main(model):
     global best_test_bpd
 
     last_checkpoints = []
     lipschitz_constants = []
     ords = []
+
+    model = parallelize(model)
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)
@@ -940,7 +941,7 @@ def main():
         if test_bpd < best_test_bpd:
             best_test_bpd = test_bpd
             utils.save_checkpoint({
-                'state_dict': model.state_dict(),
+                'state_dict': model.module.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'args': args,
                 'ema': ema,
@@ -948,7 +949,7 @@ def main():
             }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
 
         torch.save({
-            'state_dict': model.state_dict(),
+            'state_dict': model.module.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'args': args,
             'ema': ema,
@@ -957,4 +958,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(model)

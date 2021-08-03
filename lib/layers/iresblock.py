@@ -36,7 +36,8 @@ class iResBlock(nn.Module):
         nn.Module.__init__(self)
         self.nnet = nnet
         self.n_dist = n_dist
-        self.geom_p = nn.Parameter(torch.tensor(np.log(geom_p) - np.log(1. - geom_p)))
+        self.geom_p = nn.Parameter(torch.tensor(
+            np.log(geom_p) - np.log(1. - geom_p)))
         self.lamb = nn.Parameter(torch.tensor(lamb))
         self.n_samples = n_samples
         self.n_power_series = n_power_series
@@ -90,17 +91,19 @@ class iResBlock(nn.Module):
                 g = self.nnet(x)
                 # Brute-force logdet only available for 2D.
                 jac = batch_jacobian(g, x)
-                batch_dets = (jac[:, 0, 0] + 1) * (jac[:, 1, 1] + 1) - jac[:, 0, 1] * jac[:, 1, 0]
+                batch_dets = (jac[:, 0, 0] + 1) * \
+                    (jac[:, 1, 1] + 1) - jac[:, 0, 1] * jac[:, 1, 0]
                 return g, torch.log(torch.abs(batch_dets)).view(-1, 1)
 
             if self.n_dist == 'geometric':
                 geom_p = torch.sigmoid(self.geom_p).item()
-                sample_fn = lambda m: geometric_sample(geom_p, m)
-                rcdf_fn = lambda k, offset: geometric_1mcdf(geom_p, k, offset)
+                def sample_fn(m): return geometric_sample(geom_p, m)
+                def rcdf_fn(k, offset): return geometric_1mcdf(
+                    geom_p, k, offset)
             elif self.n_dist == 'poisson':
                 lamb = self.lamb.item()
-                sample_fn = lambda m: poisson_sample(lamb, m)
-                rcdf_fn = lambda k, offset: poisson_1mcdf(lamb, k, offset)
+                def sample_fn(m): return poisson_sample(lamb, m)
+                def rcdf_fn(k, offset): return poisson_1mcdf(lamb, k, offset)
 
             if self.training:
                 if self.n_power_series is None:
@@ -108,18 +111,18 @@ class iResBlock(nn.Module):
                     lamb = self.lamb.item()
                     n_samples = sample_fn(self.n_samples)
                     n_power_series = max(n_samples) + self.n_exact_terms
-                    coeff_fn = lambda k: 1 / rcdf_fn(k, self.n_exact_terms) * \
+                    def coeff_fn(k): return 1 / rcdf_fn(k, self.n_exact_terms) * \
                         sum(n_samples >= k - self.n_exact_terms) / len(n_samples)
                 else:
                     # Truncated estimation.
                     n_power_series = self.n_power_series
-                    coeff_fn = lambda k: 1.
+                    def coeff_fn(k): return 1.
             else:
                 # Unbiased estimation with more exact terms.
                 lamb = self.lamb.item()
                 n_samples = sample_fn(self.n_samples)
                 n_power_series = max(n_samples) + 20
-                coeff_fn = lambda k: 1 / rcdf_fn(k, 20) * \
+                def coeff_fn(k): return 1 / rcdf_fn(k, 20) * \
                     sum(n_samples >= k - 20) / len(n_samples)
 
             if not self.exact_trace:
@@ -142,7 +145,8 @@ class iResBlock(nn.Module):
                 else:
                     x = x.requires_grad_(True)
                     g = self.nnet(x)
-                    logdetgrad = estimator_fn(g, x, n_power_series, vareps, coeff_fn, self.training)
+                    logdetgrad = estimator_fn(
+                        g, x, n_power_series, vareps, coeff_fn, self.training)
             else:
                 ############################################
                 # Power series with exact trace computation.
@@ -154,13 +158,17 @@ class iResBlock(nn.Module):
                 jac_k = jac
                 for k in range(2, n_power_series + 1):
                     jac_k = torch.bmm(jac, jac_k)
-                    logdetgrad = logdetgrad + (-1)**(k+1) / k * coeff_fn(k) * batch_trace(jac_k)
+                    logdetgrad = logdetgrad + \
+                        (-1)**(k+1) / k * coeff_fn(k) * batch_trace(jac_k)
 
             if self.training and self.n_power_series is None:
-                self.last_n_samples.copy_(torch.tensor(n_samples).to(self.last_n_samples))
+                self.last_n_samples.copy_(torch.tensor(
+                    n_samples).to(self.last_n_samples))
                 estimator = logdetgrad.detach()
-                self.last_firmom.copy_(torch.mean(estimator).to(self.last_firmom))
-                self.last_secmom.copy_(torch.mean(estimator**2).to(self.last_secmom))
+                self.last_firmom.copy_(torch.mean(
+                    estimator).to(self.last_firmom))
+                self.last_secmom.copy_(torch.mean(
+                    estimator**2).to(self.last_secmom))
             return g, logdetgrad.view(-1, 1)
 
     def extra_repr(self):
@@ -172,7 +180,8 @@ class iResBlock(nn.Module):
 def batch_jacobian(g, x):
     jac = []
     for d in range(g.shape[1]):
-        jac.append(torch.autograd.grad(torch.sum(g[:, d]), x, create_graph=True)[0].view(x.shape[0], 1, x.shape[1]))
+        jac.append(torch.autograd.grad(torch.sum(g[:, d]), x, create_graph=True)[
+                   0].view(x.shape[0], 1, x.shape[1]))
     return torch.cat(jac, 1)
 
 
@@ -193,7 +202,8 @@ class MemoryEfficientLogDetEstimator(torch.autograd.Function):
             g = gnet(x)
             ctx.g = g
             ctx.x = x
-            logdetgrad = estimator_fn(g, x, n_power_series, vareps, coeff_fn, training)
+            logdetgrad = estimator_fn(
+                g, x, n_power_series, vareps, coeff_fn, training)
 
             if training:
                 grad_x, *grad_params = torch.autograd.grad(
@@ -219,18 +229,22 @@ class MemoryEfficientLogDetEstimator(torch.autograd.Function):
             g_params = params_and_grad[:len(params_and_grad) // 2]
             grad_params = params_and_grad[len(params_and_grad) // 2:]
 
-            dg_x, *dg_params = torch.autograd.grad(g, [x] + g_params, grad_g, allow_unused=True)
+            dg_x, * \
+                dg_params = torch.autograd.grad(
+                    g, [x] + g_params, grad_g, allow_unused=True)
 
         # Update based on gradient from logdetgrad.
         dL = grad_logdetgrad[0].detach()
         with torch.no_grad():
             grad_x.mul_(dL)
-            grad_params = tuple([g.mul_(dL) if g is not None else None for g in grad_params])
+            grad_params = tuple(
+                [g.mul_(dL) if g is not None else None for g in grad_params])
 
         # Update based on gradient from g.
         with torch.no_grad():
             grad_x.add_(dg_x)
-            grad_params = tuple([dg.add_(djac) if djac is not None else dg for dg, djac in zip(dg_params, grad_params)])
+            grad_params = tuple([dg.add_(
+                djac) if djac is not None else dg for dg, djac in zip(dg_params, grad_params)])
 
         return (None, None, grad_x, None, None, None, None) + grad_params
 
@@ -239,8 +253,10 @@ def basic_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
     vjp = vareps
     logdetgrad = torch.tensor(0.).to(x)
     for k in range(1, n_power_series + 1):
-        vjp = torch.autograd.grad(g, x, vjp, create_graph=training, retain_graph=True)[0]
-        tr = torch.sum(vjp.view(x.shape[0], -1) * vareps.view(x.shape[0], -1), 1)
+        vjp = torch.autograd.grad(
+            g, x, vjp, create_graph=training, retain_graph=True)[0]
+        tr = torch.sum(vjp.view(x.shape[0], -1)
+                       * vareps.view(x.shape[0], -1), 1)
         delta = (-1)**(k + 1) / k * coeff_fn(k) * tr
         logdetgrad = logdetgrad + delta
     return logdetgrad
@@ -254,7 +270,8 @@ def neumann_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
             vjp = torch.autograd.grad(g, x, vjp, retain_graph=True)[0]
             neumann_vjp = neumann_vjp + (-1)**k * coeff_fn(k) * vjp
     vjp_jac = torch.autograd.grad(g, x, neumann_vjp, create_graph=training)[0]
-    logdetgrad = torch.sum(vjp_jac.view(x.shape[0], -1) * vareps.view(x.shape[0], -1), 1)
+    logdetgrad = torch.sum(vjp_jac.view(
+        x.shape[0], -1) * vareps.view(x.shape[0], -1), 1)
     return logdetgrad
 
 
@@ -266,7 +283,8 @@ def mem_eff_wrapper(estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, tra
         raise ValueError('g is required to be an instance of nn.Module.')
 
     return MemoryEfficientLogDetEstimator.apply(
-        estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, training, *list(gnet.parameters())
+        estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, training, *
+        list(gnet.parameters())
     )
 
 
@@ -320,5 +338,6 @@ def _flatten(sequence):
 
 
 def _flatten_convert_none_to_zeros(sequence, like_sequence):
-    flat = [p.reshape(-1) if p is not None else torch.zeros_like(q).view(-1) for p, q in zip(sequence, like_sequence)]
+    flat = [p.reshape(-1) if p is not None else torch.zeros_like(q).view(-1)
+            for p, q in zip(sequence, like_sequence)]
     return torch.cat(flat) if len(flat) > 0 else torch.tensor([])

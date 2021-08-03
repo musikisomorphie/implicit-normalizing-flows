@@ -40,6 +40,9 @@ parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--dataroot', type=str, default='data')
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
 
+parser.add_argument('--block', type=str,
+                    choices=['resblock', 'coupling'], default='resblock')
+
 parser.add_argument('--coeff', type=float, default=0.98)
 parser.add_argument('--vnorms', type=str, default='2222')
 parser.add_argument('--n-lipschitz-iters', type=int, default=None)
@@ -60,7 +63,7 @@ parser.add_argument('--neumann-grad', type=eval,
 parser.add_argument('--mem-eff', type=eval,
                     choices=[True, False], default=True)
 
-parser.add_argument('--act', type=str, choices=ACT_FNS.keys(), default='sin')
+parser.add_argument('--act', type=str, choices=ACT_FNS.keys(), default='swish')
 parser.add_argument('--idim', type=int, default=512)
 parser.add_argument('--nblocks', type=str, default='16-16-16')
 parser.add_argument('--squeeze-first', type=eval,
@@ -119,7 +122,7 @@ parser.add_argument('--padding-dist', type=str,
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
-parser.add_argument('--nworkers', type=int, default=5)
+parser.add_argument('--nworkers', type=int, default=8)
 parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
