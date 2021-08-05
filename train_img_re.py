@@ -428,7 +428,7 @@ elif args.data == 'imagenet64':
         ])), batch_size=args.val_batchsize, shuffle=False, num_workers=args.nworkers
     )
 elif args.data == 'scrc':
-    im_dim = 4
+    im_dim = 3
     n_classes = 4
     init_layer = layers.LogitTransform(0.05)
 
