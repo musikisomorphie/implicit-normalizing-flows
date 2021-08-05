@@ -124,7 +124,8 @@ class SCRC(Dataset):
         #           torch.amax(self.imgs[:, i, :, :]))
 
         if scrc_in is not None:
-            self.imgs = self.imgs[:, scrc_in[:3], :, :].float().div(255)
+            self.imgs = self.imgs[:, scrc_in, :, :].float()
+            self.imgs[:, :3, :, :] = self.imgs[:, :3, :, :] / 255.
         else:
             self.imgs = self.imgs.float()
 
