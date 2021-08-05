@@ -4,6 +4,7 @@ import math
 import os
 import os.path
 import numpy as np
+from torchvision.transforms.transforms import ColorJitter
 from tqdm import tqdm
 import gc
 import pathlib
@@ -433,7 +434,12 @@ elif args.data == 'scrc':
 
     trn_trans = transforms.Compose([
         transforms.RandomCrop(args.imagesize),
+        transforms.ColorJitter(),
         transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
     ])
 
     tst_trans = transforms.Compose([
