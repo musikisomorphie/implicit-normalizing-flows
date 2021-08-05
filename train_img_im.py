@@ -605,7 +605,7 @@ if (args.resume is not None):
     del state
 else:
     with torch.no_grad():
-        x, _ = next(iter(train_loader))
+        x, _ = next(iter(trn_loader[1]))
         if args.squeeze_first:
             x = squeeze_layer(x)
         x = x.to(device)
