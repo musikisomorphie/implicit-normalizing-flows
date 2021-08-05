@@ -140,7 +140,7 @@ class SCRC(Dataset):
             elif scrc_out == 'cms':
                 self.labs = self.labs[:, -4:]
                 self.labs = torch.argmax(self.labs, dim=1)
-                print(torch.amin(self.labs), torch.amax(self.labs))
+                print(torch.amin(self.labs), torch.amax(self.labs), self.labs.shape)
             else:
                 raise ValueError('The outcome {} is not cms, os or dfs.'.
                                  format(scrc_out))
