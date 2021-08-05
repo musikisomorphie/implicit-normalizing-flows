@@ -111,10 +111,14 @@ class Imagenet64(CustomData):
 class SCRC(Dataset):
     def __init__(self,
                  scrc_path,
+                 scrc_idx=None,
                  scrc_in=None,
                  scrc_out=None,
                  transforms=None):
         self.imgs, self.labs = torch.load(str(scrc_path))
+        if scrc_idx is not None:
+            self.imgs = self.imgs[scrc_idx, ]
+            self.labs = self.labs[scrc_idx, ]
         # for i in range(5):
         #     print(torch.amin(self.imgs[:, i, :, :]),
         #           torch.amax(self.imgs[:, i, :, :]))
