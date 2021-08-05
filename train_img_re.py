@@ -428,7 +428,7 @@ elif args.data == 'imagenet64':
         ])), batch_size=args.val_batchsize, shuffle=False, num_workers=args.nworkers
     )
 elif args.data == 'scrc':
-    im_dim = 3
+    im_dim = 4
     n_classes = 4
     init_layer = layers.LogitTransform(0.05)
 
@@ -442,7 +442,7 @@ elif args.data == 'scrc':
     ])
 
     dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
-    scrc_in = [0, 1, 2]
+    scrc_in = [0, 1, 2, 3]
     scrc_out = 'cms'
     trn_reg = ['0', '1']
     tst_reg = '2'

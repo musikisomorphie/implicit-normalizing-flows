@@ -126,7 +126,7 @@ class SCRC(Dataset):
         if scrc_in is not None:
             self.imgs = self.imgs[:, scrc_in, :, :].float().div(255)
         else:
-            self.imgs = self.imgs[:, scrc_in, :, :].float()
+            self.imgs = self.imgs.float()
 
         if scrc_out is not None:
             if not isinstance(scrc_out, str):
