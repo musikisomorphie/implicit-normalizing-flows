@@ -845,8 +845,8 @@ def validate(epoch, model, dat_loader, phase, ema=None):
 
     if ema is not None:
         ema.swap()
-    s = '{} | Epoch: [{}]\tTime {:.2f} | bits/dim {:.4f}'.format(
-        phase, epoch, val_time, bpd_meter)
+    s = '{} | Epoch: [{}]\tTime {:.2f} | bits/dim {bpd_meter.avg:.4f}'.format(
+        phase, epoch, val_time, bpd_meter=bpd_meter)
     if args.task in ['classification', 'hybrid']:
         s += ' | CE {:.4f} | Acc {:.2f}'.format(
             ce_meter.avg, 100 * correct / total)
