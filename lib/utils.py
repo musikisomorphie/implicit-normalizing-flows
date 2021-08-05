@@ -190,7 +190,7 @@ def initialize_model(model_name,
     if model_name == "resnet":
         """ Resnet50
         """
-        model_ft = models.resnet101(pretrained=use_pretrained)
+        model_ft = models.resnet50(pretrained=use_pretrained)
         num_ftrs = model_ft.fc.in_features
         model_ft.fc = nn.Linear(num_ftrs, num_classes)
 
