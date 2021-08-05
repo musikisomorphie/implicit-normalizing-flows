@@ -53,7 +53,8 @@ class ImplicitFlow(nn.Module):
         classification=False,
         classification_hdim=64,
         n_classes=10,
-        classifier='resnet'
+        classifier='resnet',
+        chn_dim = 3
     ):
         super(ImplicitFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -89,6 +90,7 @@ class ImplicitFlow(nn.Module):
         self.classification_hdim = classification_hdim
         self.n_classes = n_classes
         self.model_name = classifier
+        self.chn_dim = chn_dim
 
         if not self.n_scale > 0:
             raise ValueError(
@@ -193,7 +195,8 @@ class ImplicitFlow(nn.Module):
 
     def build_classifier(self):
         self.classifier = utils.initialize_model(self.model_name,
-                                                 self.n_classes)
+                                                 self.n_classes,
+                                                 self.chn_dim)
 
     def forward1(self, x, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:

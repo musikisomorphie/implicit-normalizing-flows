@@ -429,41 +429,57 @@ elif args.data == 'imagenet64':
         ])), batch_size=args.val_batchsize, shuffle=False, num_workers=args.nworkers
     )
 elif args.data == 'scrc':
-    im_dim = 3
-    n_classes = 4
-    trn_path = pathlib.Path(args.dataroot) / 'scrc_symm_0.pt'
-    tst_path = pathlib.Path(args.dataroot) / 'scrc_symm_1.pt'
     init_layer = layers.LogitTransform(0.05)
 
-    transform_train = transforms.Compose([
+    trn_trans = transforms.Compose([
         transforms.RandomCrop(args.imagesize),
         transforms.RandomHorizontalFlip(),
     ])
 
-    transform_test = transforms.Compose([
+    tst_trans = transforms.Compose([
         transforms.CenterCrop(args.imagesize)
     ])
 
-    train_data = datasets.SCRC(trn_path,
-                               [0, 1, 2],
-                               'cms',
-                               transform_train)
+    dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
+    scrc_in = [0, 1, 2]
+    scrc_out = 'cms'
+    trn_reg = ['0', '1']
+    tst_reg = '2'
+    tst_size = 384
 
-    test_data = datasets.SCRC(tst_path,
-                              [0, 1, 2],
-                              'cms',
-                              transform_test)
+    im_dim = len(scrc_in)
+    n_classes = 4
 
-    train_loader = torch.utils.data.DataLoader(train_data,
-                                               batch_size=args.batchsize,
-                                               shuffle=True,
-                                               num_workers=args.nworkers,
-                                               drop_last=True)
-    test_loader = torch.utils.data.DataLoader(test_data,
-                                              batch_size=args.val_batchsize,
-                                              shuffle=False,
-                                              num_workers=args.nworkers,
-                                              drop_last=True)
+    trn_data, trn_loader = list(), list()
+    for trn in trn_reg:
+        trn_data.append(datasets.SCRC(dat_path.format(trn),
+                                      scrc_in=scrc_in,
+                                      scrc_out=scrc_out,
+                                      transforms=trn_trans))
+        trn_loader.append(torch.utils.data.DataLoader(trn_data[-1],
+                                                      batch_size=args.batchsize,
+                                                      shuffle=True,
+                                                      num_workers=args.nworkers,
+                                                      drop_last=True))
+
+    tst_path = dat_path.format(tst_reg)
+    tst_len = torch.load(str(tst_path))[0].shape[0]
+    print('test data size {}'.format(tst_len))
+    tst_idx = np.random.rand(tst_len).argsort()
+    tst_data, tst_loader = list(), list()
+    for i in range(2):
+        tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
+        tst_data.append(datasets.SCRC(tst_path,
+                                      tst_sub_idx,
+                                      scrc_in,
+                                      scrc_out,
+                                      transforms=tst_trans))
+
+        tst_loader.append(torch.utils.data.DataLoader(tst_data[-1],
+                                                      batch_size=args.val_batchsize,
+                                                      shuffle=False,
+                                                      num_workers=args.nworkers,
+                                                      drop_last=True))
 
 if args.task in ['classification', 'hybrid']:
     try:
@@ -479,7 +495,7 @@ logger.info('Creating model.')
 
 input_size = (args.batchsize, im_dim + args.padding,
               args.imagesize, args.imagesize)
-dataset_size = len(train_loader.dataset)
+# dataset_size = len(train_loader.dataset)
 
 if args.squeeze_first:
     input_size = (input_size[0], input_size[1] * 4,
@@ -521,7 +537,8 @@ model = ImplicitFlow(
     classification=args.task in ['classification', 'hybrid'],
     classification_hdim=args.cdim,
     n_classes=n_classes,
-    classifier=args.classifier
+    classifier=args.classifier,
+    chn_dim=im_dim
 )
 
 model.to(device)
@@ -564,7 +581,7 @@ elif args.optimizer == 'sgd':
 else:
     raise ValueError('Unknown optimizer {}'.format(args.optimizer))
 
-best_test_bpd = math.inf
+best_val_bpd = math.inf
 if (args.resume is not None):
     logger.info('Resuming model from {}'.format(args.resume))
     with torch.no_grad():
@@ -681,7 +698,7 @@ gnorm_meter = utils.RunningAverageMeter(0.97)
 ce_meter = utils.RunningAverageMeter(0.97)
 
 
-def train(epoch, model):
+def train(epoch, model, trn_loader):
 
     model.train()
 
@@ -690,9 +707,18 @@ def train(epoch, model):
 
     end = time.time()
 
-    for i, (x, y) in enumerate(train_loader):
+    trn_iter = iter(trn_loader[0])
+    for i, (x_1, y_1) in enumerate(trn_loader[1]):
+        try:
+            (x_0, y_0) = next(trn_iter)
+        except StopIteration:
+            trn_iter = iter(trn_loader[0])
+            (x_0, y_0) = next(trn_iter)
 
-        global_itr = epoch * len(train_loader) + i
+        x = torch.cat((x_0, x_1), dim=0)
+        y = torch.cat((y_0, y_1), dim=0)
+
+        global_itr = epoch * len(trn_loader[1]) + i
         update_lr(optimizer, global_itr)
 
         # Training procedure:
@@ -765,7 +791,7 @@ def train(epoch, model):
             s = (
                 'Epoch: [{0}][{1}/{2}] | Time {batch_time.val:.3f} | '
                 'GradNorm {gnorm_meter.avg:.2f}'.format(
-                    epoch, i, len(train_loader), batch_time=batch_time, gnorm_meter=gnorm_meter
+                    epoch, i, len(trn_loader[1]), batch_time=batch_time, gnorm_meter=gnorm_meter
                 )
             )
 
@@ -793,7 +819,7 @@ def train(epoch, model):
         gc.collect()
 
 
-def validate(epoch, model, ema=None):
+def validate(epoch, model, dat_loader, phase, ema=None):
     """
     Evaluates the cross entropy between p_data and p_model.
     """
@@ -812,7 +838,7 @@ def validate(epoch, model, ema=None):
 
     start = time.time()
     with torch.no_grad():
-        for i, (x, y) in enumerate(tqdm(test_loader)):
+        for i, (x, y) in enumerate(tqdm(dat_loader)):
             x = x.to(device)
             bpd, logits, _, _ = compute_loss(x, model)
             bpd_meter.update(bpd.item(), x.size(0))
@@ -828,8 +854,8 @@ def validate(epoch, model, ema=None):
 
     if ema is not None:
         ema.swap()
-    s = 'Epoch: [{0}]\tTime {1:.2f} | Test bits/dim {bpd_meter.avg:.4f}'.format(
-        epoch, val_time, bpd_meter=bpd_meter)
+    s = '{} | Epoch: [{}]\tTime {:.2f} | bits/dim {bpd_meter.avg:.4f}'.format(
+        phase, epoch, val_time, bpd_meter=bpd_meter)
     if args.task in ['classification', 'hybrid']:
         s += ' | CE {:.4f} | Acc {:.2f}'.format(
             ce_meter.avg, 100 * correct / total)
@@ -918,7 +944,7 @@ def pretty_repr(a):
 
 
 def main(model):
-    global best_test_bpd
+    global best_val_bpd
 
     last_checkpoints = []
     lipschitz_constants = []
@@ -932,28 +958,28 @@ def main(model):
 
         logger.info('Current LR {}'.format(optimizer.param_groups[0]['lr']))
 
-        train(epoch, model)
+        train(epoch, model, trn_loader)
         lipschitz_constants.append(get_lipschitz_constants(model))
         ords.append(get_ords(model))
         logger.info('Lipsh: {}'.format(pretty_repr(lipschitz_constants[-1])))
         logger.info('Order: {}'.format(pretty_repr(ords[-1])))
 
         if args.ema_val:
-            test_bpd = validate(epoch, model, ema)
+            val_bpd = validate(epoch, model, tst_loader[0], 'VAL', ema)
         else:
-            test_bpd = validate(epoch, model)
+            val_bpd = validate(epoch, model, tst_loader[0], 'VAL')
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
 
-        if test_bpd < best_test_bpd:
-            best_test_bpd = test_bpd
+        if val_bpd < best_val_bpd:
+            best_val_bpd = val_bpd
             utils.save_checkpoint({
                 'state_dict': model.module.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'args': args,
                 'ema': ema,
-                'test_bpd': test_bpd,
+                'val_bpd': val_bpd,
             }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
 
         torch.save({
@@ -961,8 +987,13 @@ def main(model):
             'optimizer_state_dict': optimizer.state_dict(),
             'args': args,
             'ema': ema,
-            'test_bpd': test_bpd,
+            'val_bpd': val_bpd,
         }, os.path.join(args.save, 'models', 'most_recent.pth'))
+
+        if args.ema_val:
+            tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
+        else:
+            tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
 
 
 if __name__ == '__main__':
