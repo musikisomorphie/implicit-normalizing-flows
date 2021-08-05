@@ -192,7 +192,7 @@ def initialize_model(model_name,
     if model_name == "resnet":
         """ Resnet50
         """
-        model_ft = models.resnet50(pretrained=use_pretrained)
+        model_ft = models.resnet18(pretrained=use_pretrained)
         model_ft.conv1 = nn.Conv2d(chn_dim, 64, kernel_size=7, stride=2, padding=3,
                                    bias=False)
         num_ftrs = model_ft.fc.in_features
