@@ -428,8 +428,6 @@ elif args.data == 'imagenet64':
         ])), batch_size=args.val_batchsize, shuffle=False, num_workers=args.nworkers
     )
 elif args.data == 'scrc':
-    im_dim = 3
-    n_classes = 4
     init_layer = layers.LogitTransform(0.05)
 
     trn_trans = transforms.Compose([
@@ -442,11 +440,14 @@ elif args.data == 'scrc':
     ])
 
     dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
-    scrc_in = [1, 2, 4]
+    scrc_in = [0, 1, 2, 4]
     scrc_out = 'cms'
     trn_reg = ['0', '1']
     tst_reg = '2'
     tst_size = 384
+
+    im_dim = len(scrc_in)
+    n_classes = 4
 
     trn_data, trn_loader = list(), list()
     for trn in trn_reg:
@@ -536,7 +537,8 @@ model = ResidualFlow(
     classification_hdim=args.cdim,
     n_classes=n_classes,
     block_type=args.block,
-    classifier=args.classifier
+    classifier=args.classifier,
+    chn_dim=im_dim
 )
 
 model.to(device)

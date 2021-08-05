@@ -145,7 +145,8 @@ class ExponentialMovingAverage(object):
         else:
             with torch.no_grad():
                 for name, param in self.module.named_parameters():
-                    self.shadow_params[name] -= (1 - self.decay) * (self.shadow_params[name] - param.data)
+                    self.shadow_params[name] -= (1 - self.decay) * \
+                        (self.shadow_params[name] - param.data)
 
     def set(self, other_ema):
         self.init()
@@ -173,6 +174,7 @@ class ExponentialMovingAverage(object):
 
 def initialize_model(model_name,
                      num_classes,
+                     chn_dim,
                      use_pretrained=False):
     """Select the model with `model name'
 
@@ -191,6 +193,8 @@ def initialize_model(model_name,
         """ Resnet50
         """
         model_ft = models.resnet50(pretrained=use_pretrained)
+        model_ft.conv1 = nn.Conv2d(chn_dim, 64, kernel_size=7, stride=2, padding=3,
+                                   bias=False)
         num_ftrs = model_ft.fc.in_features
         model_ft.fc = nn.Linear(num_ftrs, num_classes)
 
@@ -198,6 +202,8 @@ def initialize_model(model_name,
         """ Densenet121
         """
         model_ft = models.densenet121(pretrained=use_pretrained)
+        model_ft.conv0 = nn.Conv2d(chn_dim, 64, kernel_size=7, stride=2,
+                                   padding=3, bias=False)
         num_ftrs = model_ft.classifier.in_features
         model_ft.classifier = nn.Linear(num_ftrs, num_classes)
 

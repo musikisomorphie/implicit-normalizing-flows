@@ -52,7 +52,8 @@ class ResidualFlow(nn.Module):
         classification_hdim=64,
         n_classes=10,
         block_type='resblock',
-        classifier='resnet'
+        classifier='resnet',
+        chn_dim = 3
     ):
         super(ResidualFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -89,6 +90,7 @@ class ResidualFlow(nn.Module):
         self.n_classes = n_classes
         self.block_type = block_type
         self.model_name = classifier
+        self.chn_dim = chn_dim
 
         if not self.n_scale > 0:
             raise ValueError(
@@ -194,7 +196,8 @@ class ResidualFlow(nn.Module):
 
     def build_classifier(self):
         self.classifier = utils.initialize_model(self.model_name,
-                                                 self.n_classes)
+                                                 self.n_classes,
+                                                 self.chn_dim)
 
     def forward1(self, x, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
