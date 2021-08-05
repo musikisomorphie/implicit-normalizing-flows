@@ -442,8 +442,8 @@ elif args.data == 'scrc':
     dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
     scrc_in = [0, 1, 2]
     scrc_out = 'cms'
-    trn_reg = ['0', '1']
-    tst_reg = '2'
+    trn_reg = ['0', '2']
+    tst_reg = '1'
     tst_size = 384
 
     im_dim = len(scrc_in)
