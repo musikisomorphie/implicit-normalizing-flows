@@ -249,13 +249,12 @@ class HEDJitter(object):
 
     @staticmethod
     def adjust_HED(img, alpha, betti):
-        print(img.shape)
-        img = img.permute(2, 0, 1).numpy()
+        img = img.permute(1, 2, 0).numpy()
         assert img.shape[-1] == 3
         s = np.reshape(color.rgb2hed(img), (-1, 3))
         ns = alpha * s + betti  # perturbations on HED color space
         nimg = color.hed2rgb(np.reshape(ns, img.shape))
-        return torch.from_numpy(img).permute(1, 2, 0)
+        return torch.from_numpy(img).permute(2, 0, 1)
 
     def __call__(self, img):
         return self.adjust_HED(img, self.alpha, self.betti)
