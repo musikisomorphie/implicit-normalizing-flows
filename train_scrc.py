@@ -141,7 +141,7 @@ if device.type == 'cuda':
 
 trn_trans = transforms.Compose([
     transforms.RandomCrop(args.imagesize),
-    transforms.ColorJitter(),
+    utils.HEDJitter(0.05),
     transforms.RandomHorizontalFlip(),
     transforms.RandomVerticalFlip(),
     transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
