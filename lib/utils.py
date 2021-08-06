@@ -249,6 +249,7 @@ class HEDJitter(object):
 
     @staticmethod
     def adjust_HED(img, alpha, betti):
+        print(img.shape)
         img = img.permute(2, 0, 1).numpy()
         assert img.shape[-1] == 3
         s = np.reshape(color.rgb2hed(img), (-1, 3))
