@@ -241,7 +241,7 @@ class HEDJitter(object):
 
     def __init__(self, theta=0.):  # HED_light: theta=0.05; HED_strong: theta=0.2
         assert isinstance(
-            theta, numbers.Number), "theta should be a single number."
+            theta, Number), "theta should be a single number."
         self.theta = theta
         self.alpha = np.random.uniform(1-theta, 1+theta, (1, 3))
         self.betti = np.random.uniform(-theta, theta, (1, 3))
