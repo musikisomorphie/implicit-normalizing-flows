@@ -710,6 +710,10 @@ def train(epoch, model, trn_loader):
         x = torch.cat((x_0, x_1), dim=0)
         y = torch.cat((y_0, y_1), dim=0)
 
+        bat_id = np.random.rand(x.shape[0]).argsort()
+        x = x[bat_id, ]
+        y = y[bat_id, ]
+
         global_itr = epoch * len(trn_loader[1]) + i
         update_lr(optimizer, global_itr)
 
