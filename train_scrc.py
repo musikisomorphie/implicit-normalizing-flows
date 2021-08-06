@@ -237,5 +237,5 @@ for epoch in range(args.begin_epoch, args.nepochs):
         optimizer.step()
 
         if i % args.print_freq == 0:
-            print('Epoch: {} | Iter: {} | Acc: {0:.4f}'.format(
+            print('Epoch: {} | Iter: {} | Acc: {}'.format(
                 epoch, i, 100. * correct / total))
