@@ -200,9 +200,7 @@ model = utils.initialize_model(args.classifier,
                                chn_dim=im_dim).to(device)
 
 model = torch.nn.DataParallel(model)
-
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
 criterion = torch.nn.CrossEntropyLoss()
 
 for epoch in range(args.begin_epoch, args.nepochs):
@@ -237,5 +235,18 @@ for epoch in range(args.begin_epoch, args.nepochs):
         optimizer.step()
 
         if i % args.print_freq == 0:
+            print(x.shape, y.shape)
             print('Epoch: {} | Iter: {} | Acc: {}'.format(
                 epoch, i, 100. * correct / total))
+
+    model.eval()
+    tot, cor = 0, 0
+    for _, (x, y) in enumerate(tst_loader[1]):
+        x = x.to(device)
+        y = y.to(device)
+        lgts = model(x)
+        _, pred = lgts.max(1)
+        tot += y.size(0)
+        cor += pred.eq(y).sum().item()
+
+    print('[TEST] Epoch: {} | Acc: {}'.format(epoch, 100. * cor / tot))
