@@ -199,6 +199,8 @@ model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
                                chn_dim=im_dim).to(device)
 
+model = torch.nn.DataParallel(model)
+
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
 criterion = torch.nn.CrossEntropyLoss()
