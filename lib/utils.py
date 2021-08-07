@@ -10,6 +10,7 @@ from skimage import color
 from PIL import Image
 import random
 import cv2
+import sys
 
 NUL_CLR = {1: [0, 0, 255],  # blue, 16711680
            2: [255, 0, 0],  # red, 255
