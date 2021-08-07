@@ -283,18 +283,18 @@ class HEDJitter(object):
         orimg_out = Image.fromarray(np.uint8(orimg))
         orimg_out.save(pt_path + '{}_org.png'.format(rand_id), 'PNG')
 
-        # rsimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
-        #                              cell_color=NUL_CLR,
-        #                              inst_type=nul[1, :, :].copy(),
-        #                              canvas=rsimg.copy())
-        # rsimg_vis = Image.fromarray(np.uint8(rsimg_vis))
-        # rsimg_vis.save(pt_path + '{}_auv.png'.format(rand_id), 'PNG')
-        # orimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
-        #                              cell_color=NUL_CLR,
-        #                              inst_type=nul[1, :, :].copy(),
-        #                              canvas=orimg.copy())
-        # orimg_vis = Image.fromarray(np.uint8(orimg_vis))
-        # orimg_vis.save(pt_path + '{}_orv.png'.format(rand_id), 'PNG')
+        rsimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
+                                     cell_color=NUL_CLR,
+                                     inst_type=nul[1, :, :].copy(),
+                                     canvas=rsimg.copy())
+        rsimg_vis = Image.fromarray(np.uint8(rsimg_vis))
+        rsimg_vis.save(pt_path + '{}_auv.png'.format(rand_id), 'PNG')
+        orimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
+                                     cell_color=NUL_CLR,
+                                     inst_type=nul[1, :, :].copy(),
+                                     canvas=orimg.copy())
+        orimg_vis = Image.fromarray(np.uint8(orimg_vis))
+        orimg_vis.save(pt_path + '{}_orv.png'.format(rand_id), 'PNG')
 
         nimg = torch.from_numpy(nimg).permute(2, 0, 1)
         image[:3, ] = nimg
