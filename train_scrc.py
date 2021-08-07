@@ -193,8 +193,9 @@ for i in range(2):
                                                   shuffle=False,
                                                   num_workers=args.nworkers,
                                                   drop_last=True))
-
-logger = utils.custom_logger(str(pathlib.Path(args.save) / 'train.log'))
+log_path = pathlib.Path(args.save)
+log_path.mkdir(parents=True, exist_ok=True)
+logger = utils.custom_logger(str(log_path / 'train.log'))
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
                                chn_dim=im_dim).to(device)
