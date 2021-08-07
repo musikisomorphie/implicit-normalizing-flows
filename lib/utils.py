@@ -270,31 +270,31 @@ class HEDJitter(object):
         ns = alpha * s + betti  # perturbations on HED color space
         nimg = color.hed2rgb(np.reshape(ns, img.shape))
 
-        # pt data visualization
-        rand_id = random.randint(0, 10000)
-        imin = nimg.min()
-        imax = nimg.max()
-        pt_path = '/raid/jiqing/Data/SCRC_visual/visual_pt/'
+        # # pt data visualization
+        # rand_id = random.randint(0, 10000)
+        # imin = nimg.min()
+        # imax = nimg.max()
+        # pt_path = '/raid/jiqing/Data/SCRC_visual/visual_pt/'
 
-        rsimg = (255 * (nimg - imin) / (imax - imin))
-        rsimg_out = Image.fromarray(np.uint8(rsimg))
-        rsimg_out.save(pt_path + '{}_aug.png'.format(rand_id), 'PNG')
-        orimg = (255 * img)
-        orimg_out = Image.fromarray(np.uint8(orimg))
-        orimg_out.save(pt_path + '{}_org.png'.format(rand_id), 'PNG')
+        # rsimg = (255 * (nimg - imin) / (imax - imin))
+        # rsimg_out = Image.fromarray(np.uint8(rsimg))
+        # rsimg_out.save(pt_path + '{}_aug.png'.format(rand_id), 'PNG')
+        # orimg = (255 * img)
+        # orimg_out = Image.fromarray(np.uint8(orimg))
+        # orimg_out.save(pt_path + '{}_org.png'.format(rand_id), 'PNG')
 
-        rsimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
-                                     cell_color=NUL_CLR,
-                                     inst_type=nul[1, :, :].copy(),
-                                     canvas=rsimg.copy())
-        rsimg_vis = Image.fromarray(np.uint8(rsimg_vis))
-        rsimg_vis.save(pt_path + '{}_auv.png'.format(rand_id), 'PNG')
-        orimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
-                                     cell_color=NUL_CLR,
-                                     inst_type=nul[1, :, :].copy(),
-                                     canvas=orimg.copy())
-        orimg_vis = Image.fromarray(np.uint8(orimg_vis))
-        orimg_vis.save(pt_path + '{}_orv.png'.format(rand_id), 'PNG')
+        # rsimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
+        #                              cell_color=NUL_CLR,
+        #                              inst_type=nul[1, :, :].copy(),
+        #                              canvas=rsimg.copy())
+        # rsimg_vis = Image.fromarray(np.uint8(rsimg_vis))
+        # rsimg_vis.save(pt_path + '{}_auv.png'.format(rand_id), 'PNG')
+        # orimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
+        #                              cell_color=NUL_CLR,
+        #                              inst_type=nul[1, :, :].copy(),
+        #                              canvas=orimg.copy())
+        # orimg_vis = Image.fromarray(np.uint8(orimg_vis))
+        # orimg_vis.save(pt_path + '{}_orv.png'.format(rand_id), 'PNG')
 
         nimg = torch.from_numpy(nimg).permute(2, 0, 1)
         image[:3, ] = nimg
@@ -379,3 +379,23 @@ def visual_instances(inst_np,
 
         canvas[y1:y2, x1:x2] = inst_canvas_crop
     return canvas
+
+
+def custom_logger(logger_name, level=logging.DEBUG):
+    """Method to return a custom logger with the given name and level
+    """
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(level)
+    format_string = ("%(asctime)s — %(name)s — %(levelname)s — %(funcName)s:"
+                     "%(lineno)d — %(message)s")
+    log_format = logging.Formatter(format_string)
+    # Creating and adding the console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_format)
+    logger.addHandler(console_handler)
+    # Creating and adding the file handler
+    file_handler = logging.FileHandler(logger_name, mode='a')
+    file_handler.setFormatter(log_format)
+    logger.addHandler(file_handler)
+    return logger
