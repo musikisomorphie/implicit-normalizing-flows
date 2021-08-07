@@ -154,7 +154,7 @@ tst_trans = transforms.Compose([
 ])
 
 dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
-scrc_in = [0, 1, 2]
+scrc_in = [0, 1, 2, 3, 4]
 scrc_out = 'cms'
 trn_reg = ['0', '2']
 tst_reg = '1'
@@ -195,58 +195,67 @@ for i in range(2):
                                                   drop_last=True))
 
 
-model = utils.initialize_model(args.classifier,
-                               num_classes=n_classes,
-                               chn_dim=im_dim).to(device)
+# model = utils.initialize_model(args.classifier,
+#                                num_classes=n_classes,
+#                                chn_dim=im_dim).to(device)
 
-model = torch.nn.DataParallel(model)
-optimizer = optim.Adam(model.parameters(), lr=args.lr)
-criterion = torch.nn.CrossEntropyLoss()
+# model = torch.nn.DataParallel(model)
+# optimizer = optim.Adam(model.parameters(), lr=args.lr)
+# criterion = torch.nn.CrossEntropyLoss()
 
-for epoch in range(args.begin_epoch, args.nepochs):
-    model.train()
-    total, correct = 0, 0
-    trn_iter = iter(trn_loader[0])
-    for i, (x_1, y_1) in enumerate(trn_loader[1]):
-        try:
-            (x_0, y_0) = next(trn_iter)
-        except StopIteration:
-            trn_iter = iter(trn_loader[0])
-            (x_0, y_0) = next(trn_iter)
+trn_iter = iter(trn_loader[0])
+for i, (x_1, y_1) in enumerate(trn_loader[1]):
+    try:
+        (x_0, y_0) = next(trn_iter)
+    except StopIteration:
+        trn_iter = iter(trn_loader[0])
+        (x_0, y_0) = next(trn_iter)
+    break
 
-        optimizer.zero_grad()
+# for epoch in range(args.begin_epoch, args.nepochs):
+#     model.train()
+#     total, correct = 0, 0
+#     trn_iter = iter(trn_loader[0])
+#     for i, (x_1, y_1) in enumerate(trn_loader[1]):
+#         try:
+#             (x_0, y_0) = next(trn_iter)
+#         except StopIteration:
+#             trn_iter = iter(trn_loader[0])
+#             (x_0, y_0) = next(trn_iter)
 
-        x = torch.cat((x_0, x_1), dim=0)
-        y = torch.cat((y_0, y_1), dim=0)
-        bat_id = np.random.rand(x.shape[0]).argsort()
-        x = x[bat_id, ]
-        y = y[bat_id, ]
-        x = x.to(device)
-        y = y.to(device)
+#         optimizer.zero_grad()
 
-        logits = model(x)
-        loss = criterion(logits, y)
+#         x = torch.cat((x_0, x_1), dim=0)
+#         y = torch.cat((y_0, y_1), dim=0)
+#         bat_id = np.random.rand(x.shape[0]).argsort()
+#         x = x[bat_id, ]
+#         y = y[bat_id, ]
+#         x = x.to(device)
+#         y = y.to(device)
 
-        _, predicted = logits.max(1)
-        total += y.size(0)
-        correct += predicted.eq(y).sum().item()
+#         logits = model(x)
+#         loss = criterion(logits, y)
 
-        loss.backward()
-        optimizer.step()
+#         _, predicted = logits.max(1)
+#         total += y.size(0)
+#         correct += predicted.eq(y).sum().item()
 
-        if i % args.print_freq == 0:
-            print(x.shape, y.shape)
-            print('Epoch: {} | Iter: {} | Acc: {}'.format(
-                epoch, i, 100. * correct / total))
+#         loss.backward()
+#         optimizer.step()
 
-    model.eval()
-    tot, cor = 0, 0
-    for _, (x, y) in enumerate(tst_loader[1]):
-        x = x.to(device)
-        y = y.to(device)
-        lgts = model(x)
-        _, pred = lgts.max(1)
-        tot += y.size(0)
-        cor += pred.eq(y).sum().item()
+#         if i % args.print_freq == 0:
+#             print(x.shape, y.shape)
+#             print('Epoch: {} | Iter: {} | Acc: {}'.format(
+#                 epoch, i, 100. * correct / total))
 
-    print('[TEST] Epoch: {} | Acc: {}'.format(epoch, 100. * cor / tot))
+#     model.eval()
+#     tot, cor = 0, 0
+#     for _, (x, y) in enumerate(tst_loader[1]):
+#         x = x.to(device)
+#         y = y.to(device)
+#         lgts = model(x)
+#         _, pred = lgts.max(1)
+#         tot += y.size(0)
+#         cor += pred.eq(y).sum().item()
+
+#     print('[TEST] Epoch: {} | Acc: {}'.format(epoch, 100. * cor / tot))

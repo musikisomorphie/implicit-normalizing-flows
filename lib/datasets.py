@@ -119,14 +119,17 @@ class SCRC(Dataset):
         if scrc_idx is not None:
             self.imgs = self.imgs[scrc_idx, ]
             self.labs = self.labs[scrc_idx, ]
+            
         # for i in range(5):
         #     print(torch.amin(self.imgs[:, i, :, :]),
         #           torch.amax(self.imgs[:, i, :, :]))
 
         if scrc_in is not None:
-            self.imgs = self.imgs[:, scrc_in, :, :].float().div(255)
+            assert set([0, 1, 2]) <= set(scrc_in)
+            self.imgs = self.imgs[:, scrc_in, :, :].float()
         else:
             self.imgs = self.imgs.float()
+        self.imgs[:, :3, :, :] = self.imgs[:, :3, :, :].div(255.)
 
         if scrc_out is not None:
             if not isinstance(scrc_out, str):
@@ -140,7 +143,8 @@ class SCRC(Dataset):
             elif scrc_out == 'cms':
                 self.labs = self.labs[:, -4:]
                 self.labs = torch.argmax(self.labs, dim=1)
-                print(torch.amin(self.labs), torch.amax(self.labs), self.labs.shape)
+                print(torch.amin(self.labs), torch.amax(
+                    self.labs), self.labs.shape)
             else:
                 raise ValueError('The outcome {} is not cms, os or dfs.'.
                                  format(scrc_out))

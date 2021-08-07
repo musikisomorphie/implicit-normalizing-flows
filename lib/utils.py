@@ -7,6 +7,15 @@ import logging
 import torch
 import numpy as np
 from skimage import color
+from PIL import Image
+import random
+import cv2
+
+NUL_CLR = {1: [0, 0, 255],  # blue, 16711680
+           2: [255, 0, 0],  # red, 255
+           3: [255, 0, 255],  # magenta, 16711935
+           4: [0, 128, 0],  # dark green, 32768
+           5: [0, 255, 255]}  # cyan, 16776960
 
 
 def makedirs(dirname):
@@ -244,24 +253,129 @@ class HEDJitter(object):
         assert isinstance(
             theta, Number), "theta should be a single number."
         self.theta = theta
-        self.alpha = np.random.uniform(1-theta, 1+theta, (1, 3))
-        self.betti = np.random.uniform(-theta, theta, (1, 3))
 
     @staticmethod
-    def adjust_HED(img, alpha, betti):
-        img = img.permute(1, 2, 0).numpy()
+    def adjust_HED(image, theta):
+        alpha = np.random.uniform(1-theta, 1+theta, (1, 3))
+        betti = np.random.uniform(-theta, theta, (1, 3))
+
+        assert image.shape[0] in (3, 4, 5)
+        if image.shape[0] > 3:
+            nul = image[3:, ].clone().numpy()
+        img = image[:3, ].clone().permute(1, 2, 0)
+        img = img.numpy()
         assert img.shape[-1] == 3
+
         s = np.reshape(color.rgb2hed(img), (-1, 3))
         ns = alpha * s + betti  # perturbations on HED color space
         nimg = color.hed2rgb(np.reshape(ns, img.shape))
-        return torch.from_numpy(img).permute(2, 0, 1)
+
+        # pt data visualization
+        rand_id = random.randint(0, 10000)
+        imin = nimg.min()
+        imax = nimg.max()
+        pt_path = '/raid/jiqing/Data/SCRC_visual/visual_pt/'
+
+        rsimg = (255 * (nimg - imin) / (imax - imin))
+        rsimg_out = Image.fromarray(np.uint8(rsimg))
+        rsimg_out.save(pt_path + '{}_aug.png'.format(rand_id), 'PNG')
+        orimg = (255 * img)
+        orimg_out = Image.fromarray(np.uint8(orimg))
+        orimg_out.save(pt_path + '{}_org.png'.format(rand_id), 'PNG')
+
+        # rsimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
+        #                              cell_color=NUL_CLR,
+        #                              inst_type=nul[1, :, :].copy(),
+        #                              canvas=rsimg.copy())
+        # rsimg_vis = Image.fromarray(np.uint8(rsimg_vis))
+        # rsimg_vis.save(pt_path + '{}_auv.png'.format(rand_id), 'PNG')
+        # orimg_vis = visual_instances(inst_np=nul[0, :, :].copy(),
+        #                              cell_color=NUL_CLR,
+        #                              inst_type=nul[1, :, :].copy(),
+        #                              canvas=orimg.copy())
+        # orimg_vis = Image.fromarray(np.uint8(orimg_vis))
+        # orimg_vis.save(pt_path + '{}_orv.png'.format(rand_id), 'PNG')
+
+        nimg = torch.from_numpy(nimg).permute(2, 0, 1)
+        image[:3, ] = nimg
+        return image
 
     def __call__(self, img):
-        return self.adjust_HED(img, self.alpha, self.betti)
+        return self.adjust_HED(img, self.theta)
 
     def __repr__(self):
         format_string = self.__class__.__name__ + '('
-        format_string += 'theta={0}'.format(self.theta)
-        format_string += ',alpha={0}'.format(self.alpha)
-        format_string += ',betti={0}'.format(self.betti)
+        format_string += 'theta={0})'.format(self.theta)
+        # format_string += ',alpha={0}'.format(self.alpha)
+        # format_string += ',betti={0}'.format(self.betti)
         return format_string
+
+
+def bbox(img):
+    """Compute the bbox coordinates of an object embbeded 
+    in an img
+
+    Args:
+        img: the boolean array with True at the pos of an object
+    """
+    rows = np.any(img, axis=1)
+    cols = np.any(img, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+    # due to python indexing, need to add 1 to max
+    # else accessing will be 1px in the box, not out
+    rmax += 1
+    cmax += 1
+    return [rmin, rmax, cmin, cmax]
+
+
+def visual_instances(inst_np,
+                     cell_color,
+                     inst_type,
+                     canvas=None):
+    """Draw the cell masks on an image array
+
+    Args:
+        inst_np: the array recording cell instances
+        cell_color: the list of colors related to cell_inst
+        cell_inst: the list of cell instances 
+        canvas: the output image with colored masks
+    """
+
+    canvas = np.full(inst_np.shape + (3,), 0., dtype=np.float) \
+        if canvas is None else np.copy(canvas)
+
+    for idx, inst_id in enumerate(np.unique(inst_np).tolist()):
+        if inst_id == 0:
+            continue
+        inst_map = np.array(inst_np == inst_id, np.uint8)
+        # if the inst_id does not exist
+        if not np.any(inst_map):
+            print(('the cell {} polygon does not exist, could be '
+                   'overwritten by other cells recorded later.').format(inst_id))
+            continue
+
+        clr_idx = np.unique(inst_type[inst_np == inst_id]).tolist()
+        if len(clr_idx) != 1 or clr_idx[0] == 0:
+            print(('the cell type {} is illegal, thus ignore.').format(clr_idx))
+            continue
+
+        # print(idx, inst_id, cell_color[idx])
+        y1, y2, x1, x2 = bbox(inst_map)
+        y1 = y1 - 2 if y1 - 2 >= 0 else y1
+        x1 = x1 - 2 if x1 - 2 >= 0 else x1
+        x2 = x2 + 2 if x2 + 2 <= inst_np.shape[1] - 1 else x2
+        y2 = y2 + 2 if y2 + 2 <= inst_np.shape[0] - 1 else y2
+        inst_map_crop = inst_map[y1:y2, x1:x2]
+        inst_canvas_crop = canvas[y1:y2, x1:x2]
+        contours, _ = cv2.findContours(inst_map_crop,
+                                       cv2.RETR_TREE,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+
+        rgb = cell_color[int(clr_idx[0])]
+        cv2.drawContours(inst_canvas_crop,
+                         contours, -1,
+                         rgb, 1)
+
+        canvas[y1:y2, x1:x2] = inst_canvas_crop
+    return canvas
