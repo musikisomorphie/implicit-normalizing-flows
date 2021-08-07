@@ -154,7 +154,7 @@ tst_trans = transforms.Compose([
 ])
 
 dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
-scrc_in = [0, 1, 2, 3]
+scrc_in = [0, 1, 2, 4]
 scrc_out = 'cms'
 trn_reg = ['0', '2']
 tst_reg = '1'
