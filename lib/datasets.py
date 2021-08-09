@@ -119,17 +119,19 @@ class SCRC(Dataset):
         if scrc_idx is not None:
             self.imgs = self.imgs[scrc_idx, ]
             self.labs = self.labs[scrc_idx, ]
-            
+
         # for i in range(5):
         #     print(torch.amin(self.imgs[:, i, :, :]),
         #           torch.amax(self.imgs[:, i, :, :]))
-
-        if scrc_in is not None:
-            assert set([0, 1, 2]) <= set(scrc_in)
+        if scrc_in == [4]:
             self.imgs = self.imgs[:, scrc_in, :, :].float()
         else:
-            self.imgs = self.imgs.float()
-        self.imgs[:, :3, :, :] = self.imgs[:, :3, :, :].div(255.)
+            if scrc_in is not None:
+                assert set([0, 1, 2]) <= set(scrc_in)
+                self.imgs = self.imgs[:, scrc_in, :, :].float()
+            else:
+                self.imgs = self.imgs.float()
+            self.imgs[:, :3, :, :] = self.imgs[:, :3, :, :].div(255.)
 
         if scrc_out is not None:
             if not isinstance(scrc_out, str):
