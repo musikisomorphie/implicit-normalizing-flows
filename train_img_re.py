@@ -130,7 +130,7 @@ parser.add_argument('--padding-dist', type=str,
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
-parser.add_argument('--nworkers', type=int, default=16)
+parser.add_argument('--nworkers', type=int, default=0)
 parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
