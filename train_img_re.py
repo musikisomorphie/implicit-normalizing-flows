@@ -237,7 +237,7 @@ def remove_padding(x):
 
 
 def parallelize(model):
-    return torch.nn.parallel.DistributedDataParallel(model)
+    return torch.nn.DataParallel(model)
 
 
 logger.info('Loading dataset {}'.format(args.data))
