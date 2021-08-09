@@ -141,7 +141,7 @@ if device.type == 'cuda':
 
 trn_trans = transforms.Compose([
     transforms.RandomCrop(args.imagesize),
-    utils.HEDJitter(0.05),
+    # utils.HEDJitter(0.05),
     transforms.RandomHorizontalFlip(),
     transforms.RandomVerticalFlip(),
     transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
@@ -156,8 +156,8 @@ tst_trans = transforms.Compose([
 dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
 scrc_in = [0, 1, 2, 4]
 scrc_out = 'cms'
-trn_reg = ['0', '2']
-tst_reg = '1'
+trn_reg = ['1', '2']
+tst_reg = '0'
 tst_size = 384
 
 im_dim = len(scrc_in)
