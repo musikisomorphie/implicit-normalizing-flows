@@ -554,7 +554,7 @@ model = ResidualFlow(
     chn_dim=im_dim
 )
 
-model.to(device)
+# model.to(device)
 ema = utils.ExponentialMovingAverage(model)
 
 
@@ -962,7 +962,8 @@ def run(rank, world_size):
 
     dist.init_process_group('nccl', rank=rank, world_size=world_size)
 
-    ddp_model = DDP(model, device_ids=[rank])
+    gpu_model = model.to(rank)
+    ddp_model = DDP(gpu_model, device_ids=[rank])
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)
