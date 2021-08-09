@@ -20,6 +20,13 @@ import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
 
+import torch.distributed as dist
+import torch.multiprocessing as mp
+import torch.nn as nn
+import torch.optim as optim
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
 # Arguments
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -944,14 +951,16 @@ def pretty_repr(a):
     return '[[' + ','.join(list(map(lambda i: f'{i:.2f}', a))) + ']]'
 
 
-def main(model):
+def run(rank, world_size):
     global best_val_bpd
 
     last_checkpoints = []
     lipschitz_constants = []
     ords = []
 
-    model = parallelize(model)
+    dist.init_process_group('nccl', rank=rank, world_size=world_size)
+
+    ddp_model = DDP(model, device_ids=[rank])
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)
@@ -959,16 +968,16 @@ def main(model):
 
         logger.info('Current LR {}'.format(optimizer.param_groups[0]['lr']))
 
-        train(epoch, model, trn_loader)
-        lipschitz_constants.append(get_lipschitz_constants(model))
-        ords.append(get_ords(model))
+        train(epoch, ddp_model, trn_loader)
+        lipschitz_constants.append(get_lipschitz_constants(ddp_model))
+        ords.append(get_ords(ddp_model))
         logger.info('Lipsh: {}'.format(pretty_repr(lipschitz_constants[-1])))
         logger.info('Order: {}'.format(pretty_repr(ords[-1])))
 
         if args.ema_val:
-            val_bpd = validate(epoch, model, tst_loader[0], 'VAL', ema)
+            val_bpd = validate(epoch, ddp_model, tst_loader[0], 'VAL', ema)
         else:
-            val_bpd = validate(epoch, model, tst_loader[0], 'VAL')
+            val_bpd = validate(epoch, ddp_model, tst_loader[0], 'VAL')
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
@@ -976,7 +985,7 @@ def main(model):
         if val_bpd < best_val_bpd:
             best_val_bpd = val_bpd
             utils.save_checkpoint({
-                'state_dict': model.module.state_dict(),
+                'state_dict': ddp_model.module.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'args': args,
                 'ema': ema,
@@ -984,7 +993,7 @@ def main(model):
             }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
 
         torch.save({
-            'state_dict': model.module.state_dict(),
+            'state_dict': ddp_model.module.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'args': args,
             'ema': ema,
@@ -992,10 +1001,18 @@ def main(model):
         }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
         if args.ema_val:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
+            tst_bpd = validate(epoch, ddp_model, tst_loader[1], 'TST', ema)
         else:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
+            tst_bpd = validate(epoch, ddp_model, tst_loader[1], 'TST')
+
+
+def main():
+    world_size = torch.cuda.device_count()
+    mp.spawn(run,
+             args=(world_size,),
+             nprocs=world_size,
+             join=True)
 
 
 if __name__ == '__main__':
-    main(model)
+    main()
