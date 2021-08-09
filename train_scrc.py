@@ -156,8 +156,8 @@ tst_trans = transforms.Compose([
 dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
 scrc_in = [0, 1, 2]
 scrc_out = 'cms'
-trn_reg = ['1', '2']
-tst_reg = '0'
+trn_reg = ['0', '2']
+tst_reg = '1'
 tst_size = 384
 
 im_dim = len(scrc_in)
@@ -204,6 +204,7 @@ model = torch.nn.DataParallel(model)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 criterion = torch.nn.CrossEntropyLoss()
 
+best_tst, best_trn, best_epoch = 0., 0., 0.
 for epoch in range(args.begin_epoch, args.nepochs):
     model.train()
     total, correct = 0, 0
@@ -251,6 +252,14 @@ for epoch in range(args.begin_epoch, args.nepochs):
         cor += pred.eq(y).sum().item()
 
     logger.info('[TEST] Epoch: {} | Acc: {}'.format(epoch, 100. * cor / tot))
+
+    if best_tst < cor / tot:
+        best_tst = cor / tot
+        best_trn = correct / total
+        best_epoch = epoch
+
+logger.info('[Best] Epoch: {} | Train_acc: {:.2f} | Test_acc: {:.2f}'.
+            format(best_epoch, 100. * best_trn, 100. * best_tst))
 
 # trn_iter = iter(trn_loader[0])
 # for i, (x_1, y_1) in enumerate(trn_loader[1]):
