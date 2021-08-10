@@ -135,6 +135,7 @@ parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
+parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
 # Random seed
@@ -147,7 +148,7 @@ logger = utils.get_logger(logpath=os.path.join(
     args.save, 'logs'), filepath=os.path.abspath(__file__))
 logger.info(args)
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device(args.local_rank)
 torch.backends.cudnn.benchmark = True
 
 if device.type == 'cuda':
@@ -554,7 +555,7 @@ model = ImplicitFlow(
     chn_dim=im_dim
 )
 
-model.to(device)
+# model.to(device)
 ema = utils.ExponentialMovingAverage(model)
 
 
@@ -967,7 +968,12 @@ def main(model, optimizer):
     lipschitz_constants = []
     ords = []
 
-    model = parallelize(model)
+    # model = parallelize(model)
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model, optimizer, _, __ = deepspeed.initialize(args=args,
+                                                   model=model,
+                                                   model_parameters=parameters,
+                                                   optimizer=optimizer)
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)

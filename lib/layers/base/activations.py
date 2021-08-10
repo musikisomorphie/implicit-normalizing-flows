@@ -68,7 +68,7 @@ class Swish(nn.Module):
         self.beta = nn.Parameter(torch.tensor([0.5]))
 
     def forward(self, x):
-        return (x * torch.sigmoid_(x * F.softplus(self.beta))).div_(1.1)
+        return (x * torch.sigmoid_(x * F.softplus(self.beta.to(x)))).div_(1.1)
 
 
 if __name__ == '__main__':

@@ -39,7 +39,7 @@ class ActNormNd(nn.Module):
         bias = self.bias.view(*self.shape).expand_as(x)
         weight = self.weight.view(*self.shape).expand_as(x)
 
-        y = (x + bias) * torch.exp(weight)
+        y = (x + bias.to(x)) * torch.exp(weight.to(x))
 
         if logpx is None:
             return y
