@@ -25,9 +25,9 @@ class InducedNormLinear(nn.Module):
         self.rtol = rtol
         self.domain = domain
         self.codomain = codomain
-        self.weight = nn.Parameter(torch.Tensor(out_features, in_features)).half()
+        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
         if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_features)).half()
+            self.bias = nn.Parameter(torch.Tensor(out_features))
         else:
             self.register_parameter('bias', None)
         self.reset_parameters(zero_init)
@@ -133,7 +133,7 @@ class InducedNormLinear(nn.Module):
 
     def forward(self, input):
         weight = self.compute_weight(update=False)
-        return F.linear(input, weight, self.bias)
+        return F.linear(input, weight.to(input), self.bias.to(input))
 
     def extra_repr(self):
         domain, codomain = self.compute_domain_codomain()
@@ -165,9 +165,9 @@ class InducedNormConv2d(nn.Module):
         self.codomain = codomain
         self.atol = atol
         self.rtol = rtol
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size)).half()
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
         if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_channels)).half()
+            self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
@@ -388,7 +388,7 @@ class InducedNormConv2d(nn.Module):
     def forward(self, input):
         if not self.initialized: self.spatial_dims.copy_(torch.tensor(input.shape[2:4]).to(self.spatial_dims))
         weight = self.compute_weight(update=False)
-        return F.conv2d(input, weight, self.bias, self.stride, self.padding, 1, 1)
+        return F.conv2d(input, weight.to(input), self.bias.to(input), self.stride, self.padding, 1, 1)
 
     def extra_repr(self):
         domain, codomain = self.compute_domain_codomain()

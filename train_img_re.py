@@ -554,8 +554,7 @@ model = ResidualFlow(
     classifier=args.classifier,
     chn_dim=im_dim
 )
-
-model.half()
+model = model.half()
 ema = utils.ExponentialMovingAverage(model)
 
 
@@ -754,7 +753,7 @@ def train(epoch, model, trn_loader):
             secmom_meter.update(secmom)
 
         if args.task in ['classification', 'hybrid']:
-            y = y.half().to(device)
+            y = y.to(device)
             crossent = criterion(logits, y)
             ce_meter.update(crossent.item())
 
@@ -855,7 +854,7 @@ def validate(epoch, model, dat_loader, phase, ema=None):
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                y = y.half().to(device)
+                y = y.to(device)
                 loss = criterion(logits, y)
                 ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)

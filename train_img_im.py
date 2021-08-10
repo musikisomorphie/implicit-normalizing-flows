@@ -960,7 +960,7 @@ def pretty_repr(a):
     return '[[' + ','.join(list(map(lambda i: f'{i:.2f}', a))) + ']]'
 
 
-def main(model):
+def main(model, optimizer):
     global best_val_bpd
 
     last_checkpoints = []
@@ -989,29 +989,31 @@ def main(model):
         if args.scheduler and scheduler is not None:
             scheduler.step()
 
-        if val_bpd < best_val_bpd:
-            best_val_bpd = val_bpd
-            utils.save_checkpoint({
-                'state_dict': model.module.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'args': args,
-                'ema': ema,
-                'val_bpd': val_bpd,
-            }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
+        # if val_bpd < best_val_bpd:
+        #     best_val_bpd = val_bpd
+        #     utils.save_checkpoint({
+        #         'state_dict': model.module.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'args': args,
+        #         'ema': ema,
+        #         'val_bpd': val_bpd,
+        #     }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
 
-        torch.save({
-            'state_dict': model.module.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'args': args,
-            'ema': ema,
-            'val_bpd': val_bpd,
-        }, os.path.join(args.save, 'models', 'most_recent.pth'))
+        # torch.save({
+        #     'state_dict': model.module.state_dict(),
+        #     'optimizer_state_dict': optimizer.state_dict(),
+        #     'args': args,
+        #     'ema': ema,
+        #     'val_bpd': val_bpd,
+        # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
         if args.ema_val:
             tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
         else:
             tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
 
+    torch.cuda.synchronize()
+
 
 if __name__ == '__main__':
-    main(model)
+    main(model, optimizer)

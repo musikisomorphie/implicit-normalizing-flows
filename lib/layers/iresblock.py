@@ -34,11 +34,11 @@ class iResBlock(nn.Module):
             brute_force: Computes the exact logdet. Only available for 2D inputs.
         """
         nn.Module.__init__(self)
-        self.nnet = nnet.half()
+        self.nnet = nnet
         self.n_dist = n_dist
         self.geom_p = nn.Parameter(torch.tensor(
-            np.log(geom_p) - np.log(1. - geom_p))).half()
-        self.lamb = nn.Parameter(torch.tensor(lamb)).half()
+            np.log(geom_p) - np.log(1. - geom_p)))
+        self.lamb = nn.Parameter(torch.tensor(lamb))
         self.n_samples = n_samples
         self.n_power_series = n_power_series
         self.exact_trace = exact_trace
