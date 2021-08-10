@@ -25,9 +25,9 @@ class InducedNormLinear(nn.Module):
         self.rtol = rtol
         self.domain = domain
         self.codomain = codomain
-        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
+        self.weight = nn.Parameter(torch.Tensor(out_features, in_features)).half()
         if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_features))
+            self.bias = nn.Parameter(torch.Tensor(out_features)).half()
         else:
             self.register_parameter('bias', None)
         self.reset_parameters(zero_init)
@@ -165,9 +165,9 @@ class InducedNormConv2d(nn.Module):
         self.codomain = codomain
         self.atol = atol
         self.rtol = rtol
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size)).half()
         if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_channels))
+            self.bias = nn.Parameter(torch.Tensor(out_channels)).half()
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
