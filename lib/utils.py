@@ -11,6 +11,7 @@ from PIL import Image
 import random
 import cv2
 import sys
+import pathlib
 
 NUL_CLR = {1: [0, 0, 255],  # blue, 16711680
            2: [255, 0, 0],  # red, 255
@@ -400,3 +401,37 @@ def custom_logger(logger_name, level=logging.DEBUG):
     file_handler.setFormatter(log_format)
     logger.addHandler(file_handler)
     return logger
+
+
+def creat_mock_data(data_path,
+                    data_size,
+                    img_size=500,
+                    lab_size=19,
+                    inst=8024,
+                    typ=6,
+                    env=3):
+    for i in range(env):
+        imgs = np.random.randint(255, size=(data_size, 5, img_size, img_size))
+        # instance
+        imgs[:, 3, :, :] = np.random.randint(
+            inst, size=(data_size, img_size, img_size))
+        imgs[:, 4, :, :] = np.random.randint(
+            typ, size=(data_size, img_size, img_size))
+        labs = np.random.rand(data_size, lab_size)
+
+        save_pt = pathlib.Path(data_path) / \
+            'scrc_symm_{}.pt'.format(i)
+        with open(str(save_pt), 'wb') as f:
+            torch.save((torch.from_numpy(imgs),
+                        torch.from_numpy(labs)), f)
+        print('data {} generation complete.'.format(str(save_pt)))
+
+
+def main():
+    data_path = '/home/miashan/Data/SCRC_nuclei/'
+    data_size = 1024
+    creat_mock_data(data_path, data_size)
+
+
+if __name__ == '__main__':
+    main()

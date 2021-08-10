@@ -20,17 +20,17 @@ import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
 
-import torch.distributed as dist
-import torch.multiprocessing as mp
-import torch.nn as nn
-import torch.optim as optim
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-os.environ['MASTER_ADDR'] = 'localhost'
-os.environ['MASTER_PORT'] = '29501'
+import deepspeed
 
 # Arguments
 parser = argparse.ArgumentParser()
+parser.add_argument('--backend', type=str, default='nccl',
+                    help='distributed backend')
+parser.add_argument('--local_rank',
+                    type=int,
+                    default=-1,
+                    help='local rank passed from distributed launcher')
+parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument(
     '--data', type=str, default='cifar10', choices=[
         'mnist',
@@ -92,7 +92,8 @@ parser.add_argument('--quadratic', type=eval,
                     choices=[True, False], default=False)
 parser.add_argument('--fc-end', type=eval, choices=[True, False], default=True)
 parser.add_argument('--fc-idim', type=int, default=128)
-parser.add_argument('--preact', type=eval, choices=[True, False], default=True)
+parser.add_argument('--preact', type=eval,
+                    choices=[True, False], default=True)
 parser.add_argument('--padding', type=int, default=0)
 parser.add_argument('--first-resblock', type=eval,
                     choices=[True, False], default=True)
@@ -130,11 +131,12 @@ parser.add_argument('--padding-dist', type=str,
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
-parser.add_argument('--nworkers', type=int, default=0)
+parser.add_argument('--nworkers', type=int, default=4)
 parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
+parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
 # Random seed
@@ -147,7 +149,7 @@ logger = utils.get_logger(logpath=os.path.join(
     args.save, 'logs'), filepath=os.path.abspath(__file__))
 logger.info(args)
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device(args.local_rank)
 torch.backends.cudnn.benchmark = True
 
 if device.type == 'cuda':
@@ -441,12 +443,12 @@ elif args.data == 'scrc':
 
     trn_trans = transforms.Compose([
         transforms.RandomCrop(args.imagesize),
-        transforms.ColorJitter(),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
-        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        # transforms.ColorJitter(),
+        # transforms.RandomHorizontalFlip(),
+        # transforms.RandomVerticalFlip(),
+        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
     ])
 
     tst_trans = transforms.Compose([
@@ -953,17 +955,18 @@ def pretty_repr(a):
     return '[[' + ','.join(list(map(lambda i: f'{i:.2f}', a))) + ']]'
 
 
-def run(rank, world_size):
+def main(model, optimizer):
     global best_val_bpd
 
     last_checkpoints = []
     lipschitz_constants = []
     ords = []
 
-    dist.init_process_group('nccl', rank=rank, world_size=world_size)
-
-    gpu_model = model.to(rank)
-    ddp_model = DDP(gpu_model, device_ids=[rank])
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model, optimizer, _, __ = deepspeed.initialize(args=args,
+                                                   model=model,
+                                                   model_parameters=parameters,
+                                                   optimizer=optimizer)
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)
@@ -971,51 +974,45 @@ def run(rank, world_size):
 
         logger.info('Current LR {}'.format(optimizer.param_groups[0]['lr']))
 
-        train(epoch, ddp_model, trn_loader)
-        lipschitz_constants.append(get_lipschitz_constants(ddp_model))
-        ords.append(get_ords(ddp_model))
+        train(epoch, model, trn_loader)
+        lipschitz_constants.append(get_lipschitz_constants(model))
+        ords.append(get_ords(model))
         logger.info('Lipsh: {}'.format(pretty_repr(lipschitz_constants[-1])))
         logger.info('Order: {}'.format(pretty_repr(ords[-1])))
 
         if args.ema_val:
-            val_bpd = validate(epoch, ddp_model, tst_loader[0], 'VAL', ema)
+            val_bpd = validate(epoch, model, tst_loader[0], 'VAL', ema)
         else:
-            val_bpd = validate(epoch, ddp_model, tst_loader[0], 'VAL')
+            val_bpd = validate(epoch, model, tst_loader[0], 'VAL')
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
 
-        if val_bpd < best_val_bpd:
-            best_val_bpd = val_bpd
-            utils.save_checkpoint({
-                'state_dict': ddp_model.module.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'args': args,
-                'ema': ema,
-                'val_bpd': val_bpd,
-            }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
+        # if val_bpd < best_val_bpd:
+        #     best_val_bpd = val_bpd
+        #     utils.save_checkpoint({
+        #         'state_dict': model.module.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'args': args,
+        #         'ema': ema,
+        #         'val_bpd': val_bpd,
+        #     }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
 
-        torch.save({
-            'state_dict': ddp_model.module.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'args': args,
-            'ema': ema,
-            'val_bpd': val_bpd,
-        }, os.path.join(args.save, 'models', 'most_recent.pth'))
+        # torch.save({
+        #     'state_dict': model.module.state_dict(),
+        #     'optimizer_state_dict': optimizer.state_dict(),
+        #     'args': args,
+        #     'ema': ema,
+        #     'val_bpd': val_bpd,
+        # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
         if args.ema_val:
-            tst_bpd = validate(epoch, ddp_model, tst_loader[1], 'TST', ema)
+            tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
         else:
-            tst_bpd = validate(epoch, ddp_model, tst_loader[1], 'TST')
+            tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
 
-
-def main():
-    world_size = torch.cuda.device_count()
-    mp.spawn(run,
-             args=(world_size,),
-             nprocs=world_size,
-             join=True)
+    torch.cuda.synchronize()
 
 
 if __name__ == '__main__':
-    main()
+    main(model, optimizer)

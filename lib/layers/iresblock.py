@@ -37,8 +37,8 @@ class iResBlock(nn.Module):
         self.nnet = nnet
         self.n_dist = n_dist
         self.geom_p = nn.Parameter(torch.tensor(
-            np.log(geom_p) - np.log(1. - geom_p)))
-        self.lamb = nn.Parameter(torch.tensor(lamb))
+            np.log(geom_p) - np.log(1. - geom_p))).float()
+        self.lamb = nn.Parameter(torch.tensor(lamb)).float()
         self.n_samples = n_samples
         self.n_power_series = n_power_series
         self.exact_trace = exact_trace

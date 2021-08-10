@@ -4,7 +4,6 @@ import math
 import os
 import os.path
 import numpy as np
-from torchvision.transforms.transforms import ColorJitter
 from tqdm import tqdm
 import gc
 import pathlib
@@ -21,8 +20,17 @@ import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
 
+import deepspeed
+
 # Arguments
 parser = argparse.ArgumentParser()
+parser.add_argument('--backend', type=str, default='nccl',
+                    help='distributed backend')
+parser.add_argument('--local_rank',
+                    type=int,
+                    default=-1,
+                    help='local rank passed from distributed launcher')
+parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument(
     '--data', type=str, default='cifar10', choices=[
         'mnist',
@@ -123,7 +131,7 @@ parser.add_argument('--padding-dist', type=str,
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
-parser.add_argument('--nworkers', type=int, default=16)
+parser.add_argument('--nworkers', type=int, default=4)
 parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
@@ -434,12 +442,12 @@ elif args.data == 'scrc':
 
     trn_trans = transforms.Compose([
         transforms.RandomCrop(args.imagesize),
-        transforms.ColorJitter(),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
-        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        # transforms.ColorJitter(),
+        # transforms.RandomHorizontalFlip(),
+        # transforms.RandomVerticalFlip(),
+        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
     ])
 
     tst_trans = transforms.Compose([
@@ -449,8 +457,8 @@ elif args.data == 'scrc':
     dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
     scrc_in = [0, 1, 2]
     scrc_out = 'cms'
-    trn_reg = ['0', '1']
-    tst_reg = '2'
+    trn_reg = ['0', '2']
+    tst_reg = '1'
     tst_size = 384
 
     im_dim = len(scrc_in)
@@ -723,6 +731,10 @@ def train(epoch, model, trn_loader):
 
         x = torch.cat((x_0, x_1), dim=0)
         y = torch.cat((y_0, y_1), dim=0)
+
+        bat_id = np.random.rand(x.shape[0]).argsort()
+        x = x[bat_id, ]
+        y = y[bat_id, ]
 
         global_itr = epoch * len(trn_loader[1]) + i
         update_lr(optimizer, global_itr)
