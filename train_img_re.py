@@ -148,6 +148,7 @@ logger = utils.get_logger(logpath=os.path.join(
     args.save, 'logs'), filepath=os.path.abspath(__file__))
 logger.info(args)
 
+# device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 device = torch.device(args.local_rank)
 torch.backends.cudnn.benchmark = True
 
@@ -960,6 +961,7 @@ def main(model, optimizer):
     lipschitz_constants = []
     ords = []
 
+    # model = parallelize(model)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     model, optimizer, _, __ = deepspeed.initialize(args=args,
                                                    model=model,
