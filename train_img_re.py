@@ -19,7 +19,6 @@ import lib.utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
-
 import deepspeed
 
 # Arguments
@@ -556,7 +555,7 @@ model = ResidualFlow(
     chn_dim=im_dim
 )
 
-# model.to(device)
+model.half()
 ema = utils.ExponentialMovingAverage(model)
 
 
@@ -717,6 +716,7 @@ def train(epoch, model, trn_loader):
 
     trn_iter = iter(trn_loader[0])
     for i, (x_1, y_1) in enumerate(trn_loader[1]):
+        optimizer.zero_grad()
         try:
             (x_0, y_0) = next(trn_iter)
         except StopIteration:
@@ -789,7 +789,6 @@ def train(epoch, model, trn_loader):
                 compute_p_grads(model)
 
             optimizer.step()
-            optimizer.zero_grad()
             update_lipschitz(model)
             ema.apply()
 
