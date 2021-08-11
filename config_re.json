@@ -1,5 +1,6 @@
 {
     "train_batch_size": 12,
+    "zero_allow_untested_optimizer": true,
     "optimizer": {
         "type": "Adam",
         "params": {
