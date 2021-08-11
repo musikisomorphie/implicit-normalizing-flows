@@ -905,7 +905,8 @@ def visualize(rank, epoch, model, itr, real_imgs):
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
-        fake_imgs = model(fixed_z.to(rank), inverse=True).view(-1, *input_size[1:])
+        fake_imgs = model(fixed_z.to(
+            rank), inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)
@@ -972,7 +973,9 @@ def run(rank, world_size, use_zero):
     # create default process group
     dist.init_process_group('nccl', rank=rank, world_size=world_size)
 
-    ddp_model = DDP(model.to(rank), device_ids=[rank])
+    ddp_model = DDP(model.to(rank),
+                    device_ids=[rank],
+                    find_unused_parameters=True)
 
     if use_zero:
         optimizer = ZeroRedundancyOptimizer(
@@ -996,7 +999,8 @@ def run(rank, world_size, use_zero):
         logger.info('Order: {}'.format(pretty_repr(ords[-1])))
 
         if args.ema_val:
-            val_bpd = validate(rank, epoch, ddp_model, tst_loader[0], 'VAL', ema)
+            val_bpd = validate(rank, epoch, ddp_model,
+                               tst_loader[0], 'VAL', ema)
         else:
             val_bpd = validate(rank, epoch, ddp_model, tst_loader[0], 'VAL')
 
@@ -1022,11 +1026,13 @@ def run(rank, world_size, use_zero):
         # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
         if args.ema_val:
-            tst_bpd = validate(rank, epoch, ddp_model, tst_loader[1], 'TST', ema)
+            tst_bpd = validate(rank, epoch, ddp_model,
+                               tst_loader[1], 'TST', ema)
         else:
             tst_bpd = validate(rank, epoch, ddp_model, tst_loader[1], 'TST')
 
     torch.cuda.synchronize()
+
 
 def main():
     world_size = torch.cuda.device_count()
