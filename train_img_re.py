@@ -152,8 +152,8 @@ logger = utils.get_logger(logpath=os.path.join(
     args.save, 'logs'), filepath=os.path.abspath(__file__))
 logger.info(args)
 
-# device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-device = torch.device(args.local_rank)
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+# device = torch.device(args.local_rank)
 torch.backends.cudnn.benchmark = True
 
 if device.type == 'cuda':
@@ -602,32 +602,32 @@ else:
     raise ValueError('Unknown optimizer {}'.format(args.optimizer))
 
 best_val_bpd = math.inf
-if (args.resume is not None):
-    logger.info('Resuming model from {}'.format(args.resume))
-    with torch.no_grad():
-        x = torch.rand(1, *input_size[1:]).to(device)
-        model(x)
-    checkpt = torch.load(args.resume)
-    sd = {k: v for k, v in checkpt['state_dict'].items(
-    ) if 'last_n_samples' not in k}
-    state = model.state_dict()
-    state.update(sd)
-    model.load_state_dict(state, strict=True)
-    ema.set(checkpt['ema'])
-    if 'optimizer_state_dict' in checkpt:
-        optimizer.load_state_dict(checkpt['optimizer_state_dict'])
-        # Manually move optimizer state to GPU
-        for state in optimizer.state.values():
-            for k, v in state.items():
-                if torch.is_tensor(v):
-                    state[k] = v.to(device)
-    del checkpt
-    del state
+# if (args.resume is not None):
+#     logger.info('Resuming model from {}'.format(args.resume))
+#     with torch.no_grad():
+#         x = torch.rand(1, *input_size[1:]).to(device)
+#         model(x)
+#     checkpt = torch.load(args.resume)
+#     sd = {k: v for k, v in checkpt['state_dict'].items(
+#     ) if 'last_n_samples' not in k}
+#     state = model.state_dict()
+#     state.update(sd)
+#     model.load_state_dict(state, strict=True)
+#     ema.set(checkpt['ema'])
+#     if 'optimizer_state_dict' in checkpt:
+#         optimizer.load_state_dict(checkpt['optimizer_state_dict'])
+#         # Manually move optimizer state to GPU
+#         for state in optimizer.state.values():
+#             for k, v in state.items():
+#                 if torch.is_tensor(v):
+#                     state[k] = v.to(device)
+#     del checkpt
+#     del state
 
 logger.info(optimizer)
 
 fixed_z = standard_normal_sample([min(32, args.batchsize),
-                                  (im_dim + args.padding) * args.imagesize * args.imagesize]).to(device)
+                                  (im_dim + args.padding) * args.imagesize * args.imagesize])
 
 criterion = torch.nn.CrossEntropyLoss()
 
@@ -829,7 +829,7 @@ def train(rank, epoch, model, trn_loader, optimizer):
 
             logger.info(s)
         if i % args.vis_freq == 0:
-            visualize(epoch, model, i, x)
+            visualize(rank, epoch, model, i, x)
 
         del x
         torch.cuda.empty_cache()
@@ -880,7 +880,7 @@ def validate(rank, epoch, model, dat_loader, phase, ema=None):
     return bpd_meter.avg
 
 
-def visualize(epoch, model, itr, real_imgs):
+def visualize(rank, epoch, model, itr, real_imgs):
     model.eval()
     utils.makedirs(os.path.join(args.save, 'imgs'))
     real_imgs = real_imgs[:32]
@@ -905,7 +905,7 @@ def visualize(epoch, model, itr, real_imgs):
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
-        fake_imgs = model(fixed_z, inverse=True).view(-1, *input_size[1:])
+        fake_imgs = model(fixed_z.to(rank), inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)
