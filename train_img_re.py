@@ -475,7 +475,8 @@ elif args.data == 'scrc':
                                                       batch_size=args.batchsize,
                                                       shuffle=True,
                                                       num_workers=args.nworkers,
-                                                      drop_last=True))
+                                                      drop_last=True,
+                                                      pin_memory=True))
 
     tst_path = dat_path.format(tst_reg)
     tst_len = torch.load(str(tst_path))[0].shape[0]
@@ -494,7 +495,8 @@ elif args.data == 'scrc':
                                                       batch_size=args.val_batchsize,
                                                       shuffle=False,
                                                       num_workers=args.nworkers,
-                                                      drop_last=True))
+                                                      drop_last=True,
+                                                      pin_memory=True))
 
 if args.task in ['classification', 'hybrid']:
     try:
