@@ -557,7 +557,7 @@ model = ResidualFlow(
     classifier=args.classifier,
     chn_dim=im_dim
 )
-# model = model.half()
+model = model.half()
 ema = utils.ExponentialMovingAverage(model)
 
 
@@ -740,7 +740,7 @@ def train(epoch, model, trn_loader):
         #   compute z = f(x)
         #   maximize log p(x) = log p(z) - log |det df/dx|
 
-        x = x.to(device)
+        x = x.half().to(device)
 
         beta = beta = min(1, global_itr /
                           args.annealing_iters) if args.annealing_iters > 0 else 1.
@@ -756,7 +756,7 @@ def train(epoch, model, trn_loader):
             secmom_meter.update(secmom)
 
         if args.task in ['classification', 'hybrid']:
-            y = y.to(device)
+            y = y.half().to(device)
             crossent = criterion(logits, y)
             ce_meter.update(crossent.item())
 
@@ -852,12 +852,12 @@ def validate(epoch, model, dat_loader, phase, ema=None):
     start = time.time()
     with torch.no_grad():
         for i, (x, y) in enumerate(tqdm(dat_loader)):
-            x = x.to(device)
+            x = x.half().to(device)
             bpd, logits, _, _ = compute_loss(x, model)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                y = y.to(device)
+                y = y.half().to(device)
                 loss = criterion(logits, y)
                 ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)
