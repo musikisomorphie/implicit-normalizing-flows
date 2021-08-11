@@ -1008,10 +1008,10 @@ def main(model, optimizer):
         #     'val_bpd': val_bpd,
         # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
-        if args.ema_val:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
-        else:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
+        # if args.ema_val:
+        #     tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
+        # else:
+        #     tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
 
     torch.cuda.synchronize()
 
