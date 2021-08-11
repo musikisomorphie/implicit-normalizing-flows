@@ -13,7 +13,6 @@
     "optimizer": {
         "type": "Adam",
         "params": {
-            "adam_w_mode": true,
             "lr": 1e-3,
             "betas": [
                 0.9,
