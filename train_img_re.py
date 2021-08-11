@@ -9,8 +9,12 @@ import gc
 import pathlib
 import torch
 import torchvision.transforms as transforms
-from torchvision.utils import save_image
 import torchvision.datasets as vdsets
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torchvision.utils import save_image
+from torch.distributed.optim import ZeroRedundancyOptimizer
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from lib.resflow import ACT_FNS, ResidualFlow
 import lib.datasets as datasets
@@ -19,7 +23,7 @@ import lib.utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
-import deepspeed
+# import deepspeed
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -135,7 +139,7 @@ parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
-parser = deepspeed.add_config_arguments(parser)
+# parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
 # Random seed
@@ -707,7 +711,7 @@ gnorm_meter = utils.RunningAverageMeter(0.97)
 ce_meter = utils.RunningAverageMeter(0.97)
 
 
-def train(epoch, model, trn_loader):
+def train(rank, epoch, model, trn_loader, optimizer):
 
     model.train()
 
@@ -740,7 +744,7 @@ def train(epoch, model, trn_loader):
         #   compute z = f(x)
         #   maximize log p(x) = log p(z) - log |det df/dx|
 
-        x = x.to(device)
+        x = x.to(rank)
 
         beta = beta = min(1, global_itr /
                           args.annealing_iters) if args.annealing_iters > 0 else 1.
@@ -756,7 +760,7 @@ def train(epoch, model, trn_loader):
             secmom_meter.update(secmom)
 
         if args.task in ['classification', 'hybrid']:
-            y = y.to(device)
+            y = y.to(rank)
             crossent = criterion(logits, y)
             ce_meter.update(crossent.item())
 
@@ -832,7 +836,7 @@ def train(epoch, model, trn_loader):
         gc.collect()
 
 
-def validate(epoch, model, dat_loader, phase, ema=None):
+def validate(rank, epoch, model, dat_loader, phase, ema=None):
     """
     Evaluates the cross entropy between p_data and p_model.
     """
@@ -852,12 +856,12 @@ def validate(epoch, model, dat_loader, phase, ema=None):
     start = time.time()
     with torch.no_grad():
         for i, (x, y) in enumerate(tqdm(dat_loader)):
-            x = x.to(device)
+            x = x.to(rank)
             bpd, logits, _, _ = compute_loss(x, model)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                y = y.to(device)
+                y = y.to(rank)
                 loss = criterion(logits, y)
                 ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)
@@ -956,19 +960,28 @@ def pretty_repr(a):
     return '[[' + ','.join(list(map(lambda i: f'{i:.2f}', a))) + ']]'
 
 
-def main(model, optimizer):
+def run(rank, world_size, use_zero):
     global best_val_bpd
 
     last_checkpoints = []
     lipschitz_constants = []
     ords = []
 
-    # model = parallelize(model)
-    parameters = filter(lambda p: p.requires_grad, model.parameters())
-    model, optimizer, _, __ = deepspeed.initialize(args=args,
-                                                   model=model,
-                                                   model_parameters=parameters,
-                                                   optimizer=optimizer)
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '29500'
+    # create default process group
+    dist.init_process_group('nccl', rank=rank, world_size=world_size)
+
+    ddp_model = DDP(model.to(rank), device_ids=[rank])
+
+    if use_zero:
+        optimizer = ZeroRedundancyOptimizer(
+            ddp_model.parameters(),
+            optimizer_class=torch.optim.Adam,
+            lr=1e-3
+        )
+    else:
+        optimizer = torch.optim.Adam(ddp_model.parameters(), lr=1e-3)
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)
@@ -976,16 +989,16 @@ def main(model, optimizer):
 
         logger.info('Current LR {}'.format(optimizer.param_groups[0]['lr']))
 
-        train(epoch, model, trn_loader)
-        lipschitz_constants.append(get_lipschitz_constants(model))
-        ords.append(get_ords(model))
+        train(rank, epoch, ddp_model, trn_loader, optimizer)
+        lipschitz_constants.append(get_lipschitz_constants(ddp_model))
+        ords.append(get_ords(ddp_model))
         logger.info('Lipsh: {}'.format(pretty_repr(lipschitz_constants[-1])))
         logger.info('Order: {}'.format(pretty_repr(ords[-1])))
 
         if args.ema_val:
-            val_bpd = validate(epoch, model, tst_loader[0], 'VAL', ema)
+            val_bpd = validate(rank, epoch, ddp_model, tst_loader[0], 'VAL', ema)
         else:
-            val_bpd = validate(epoch, model, tst_loader[0], 'VAL')
+            val_bpd = validate(rank, epoch, ddp_model, tst_loader[0], 'VAL')
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
@@ -1009,12 +1022,19 @@ def main(model, optimizer):
         # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
         if args.ema_val:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
+            tst_bpd = validate(rank, epoch, ddp_model, tst_loader[1], 'TST', ema)
         else:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
+            tst_bpd = validate(rank, epoch, ddp_model, tst_loader[1], 'TST')
 
     torch.cuda.synchronize()
 
+def main():
+    world_size = torch.cuda.device_count()
+    mp.spawn(run,
+             args=(world_size, True),
+             nprocs=world_size,
+             join=True)
+
 
 if __name__ == '__main__':
-    main(model, optimizer)
+    main()
