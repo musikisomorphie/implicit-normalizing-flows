@@ -14,7 +14,7 @@ logger = logging.getLogger()
 __all__ = ['imBlock']
 
 
-def find_fixed_point(g, y, threshold=1000, eps=1e-5):
+def find_fixed_point(g, y, threshold=100, eps=1e-5):
     x, x_prev = g(y), y
     i = 0
     tol = eps + eps * y.abs()
@@ -23,7 +23,7 @@ def find_fixed_point(g, y, threshold=1000, eps=1e-5):
         i += 1
         if i > threshold:
             logger.info(torch.abs(x - x_prev).max())
-            logger.info('Iterations exceeded 1000 for fixed point.')
+            # logger.info('Iterations exceeded 1000 for fixed point.')
             break
     return x
 
