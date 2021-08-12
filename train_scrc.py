@@ -22,6 +22,15 @@ from lib.lr_scheduler import CosineAnnealingWarmRestarts
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--env', type=str,
+                    choices=['012', '120', '201'])
+parser.add_argument('--aug', type=str,
+                    choices=['r', 'rr'])
+parser.add_argument('--inp', type=str,
+                    choices=['i', 'im', 'm'])
+parser.add_argument('--oup', type=str,
+                    choices=['cms'], default='cms')
+
 parser.add_argument(
     '--data', type=str, default='cifar10', choices=[
         'mnist',
@@ -128,41 +137,43 @@ parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
 args = parser.parse_args()
 
-# Random seed
-if args.seed is None:
-    args.seed = np.random.randint(100000)
-
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 torch.backends.cudnn.benchmark = True
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
-if device.type == 'cuda':
-    torch.cuda.manual_seed(args.seed)
 
-trn_trans = transforms.Compose([
-    transforms.RandomCrop(args.imagesize),
-    # utils.HEDJitter(0.05),
-    # transforms.RandomHorizontalFlip(),
-    # transforms.RandomVerticalFlip(),
-    # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-    # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-    # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-])
+if args.aug == 'r':
+    trn_trans = transforms.Compose([
+        transforms.RandomCrop(args.imagesize),
+    ])
+elif args.aug == 'rr':
+    trn_trans = transforms.Compose([
+        transforms.RandomCrop(args.imagesize),
+        # utils.HEDJitter(0.05),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+    ])
 
 tst_trans = transforms.Compose([
     transforms.CenterCrop(args.imagesize)
 ])
 
+if args.inp == 'i':
+    scrc_in = [0, 1, 2]
+elif args.inp == 'im':
+    scrc_in = [0, 1, 2, 4]
+elif args.inp == 'm':
+    scrc_in = [4]
+
+scrc_out = args.oup
+if scrc_out == 'cms':
+    n_classes = 4
+
+trn_reg = args.env[:2]
+tst_reg = args.env[-1]
+
 dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
-scrc_in = [4]
-scrc_out = 'cms'
-trn_reg = ['0', '1']
-tst_reg = '2'
-tst_size = 384
-
-im_dim = len(scrc_in)
-n_classes = 4
-
 trn_data, trn_loader = list(), list()
 for trn in trn_reg:
     trn_data.append(datasets.SCRC(dat_path.format(trn),
@@ -175,6 +186,7 @@ for trn in trn_reg:
                                                   num_workers=args.nworkers,
                                                   drop_last=True))
 
+tst_size = 384
 tst_path = dat_path.format(tst_reg)
 tst_len = torch.load(str(tst_path))[0].shape[0]
 print('test data size {}'.format(tst_len))
@@ -193,17 +205,19 @@ for i in range(2):
                                                   shuffle=False,
                                                   num_workers=args.nworkers,
                                                   drop_last=True))
-log_path = pathlib.Path(args.save)
-log_path.mkdir(parents=True, exist_ok=True)
-logger = utils.custom_logger(str(log_path / 'train.log'))
+
+
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
-                               chn_dim=im_dim).to(device)
-
-model = torch.nn.DataParallel(model)
+                               chn_dim=len(scrc_in)).half().to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 criterion = torch.nn.CrossEntropyLoss()
 
+
+save_path = pathlib.Path(args.save) / \
+    '{}_{}_{}'.format(args.env, args.aug, args.inp)
+save_path.mkdir(parents=True, exist_ok=True)
+logger = utils.custom_logger(str(save_path / 'train.log'))
 best_tst, best_trn, best_epoch = 0., 0., 0.
 for epoch in range(args.begin_epoch, args.nepochs):
     model.train()
@@ -223,7 +237,7 @@ for epoch in range(args.begin_epoch, args.nepochs):
         bat_id = np.random.rand(x.shape[0]).argsort()
         x = x[bat_id, ]
         y = y[bat_id, ]
-        x = x.to(device)
+        x = x.half().to(device)
         y = y.to(device)
 
         logits = model(x)
@@ -244,7 +258,7 @@ for epoch in range(args.begin_epoch, args.nepochs):
     model.eval()
     tot, cor = 0, 0
     for _, (x, y) in enumerate(tst_loader[1]):
-        x = x.to(device)
+        x = x.half().to(device)
         y = y.to(device)
         lgts = model(x)
         _, pred = lgts.max(1)
@@ -257,6 +271,8 @@ for epoch in range(args.begin_epoch, args.nepochs):
         best_tst = cor / tot
         best_trn = correct / total
         best_epoch = epoch
+        model_file = save_path / 'best_model.pt'
+        torch.save(model.state_dict(), str(model_file))
 
 logger.info('[Best] Epoch: {} | Train_acc: {:.2f} | Test_acc: {:.2f}'.
             format(best_epoch, 100. * best_trn, 100. * best_tst))
