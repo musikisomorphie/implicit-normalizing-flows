@@ -214,7 +214,7 @@ model = utils.initialize_model(args.classifier,
 #   if isinstance(layer, torch.nn.BatchNorm2d):
 #     layer.float()
 model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3)
 criterion = torch.nn.CrossEntropyLoss()
 
 
