@@ -67,15 +67,15 @@ class iResBlock(nn.Module):
         else:
             return x, logpy + self._logdetgrad(x)[1]
 
-    def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5):
+    def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5, threshold=100):
         x, x_prev = y - self.nnet(y), y
         i = 0
         tol = atol + y.abs() * rtol
         while not torch.all((x - x_prev)**2 / tol < 1):
             x, x_prev = y - self.nnet(x), x
             i += 1
-            if i > 1000:
-                logger.info('Iterations exceeded 1000 for inverse.')
+            if i > threshold:
+                # logger.info('Iterations exceeded {} for inverse.'.format(threshold))
                 break
         return x
 
