@@ -211,11 +211,11 @@ for i in range(2):
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
                                chn_dim=len(scrc_in)).half()
-for layer in model.modules():
-  if isinstance(layer, torch.nn.BatchNorm2d):
-    layer.float()
+# for layer in model.modules():
+#   if isinstance(layer, torch.nn.BatchNorm2d):
+#     layer.float()
 model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=args.lr)
+optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-4)
 criterion = torch.nn.CrossEntropyLoss()
 
 
