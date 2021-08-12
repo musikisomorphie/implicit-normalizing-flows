@@ -75,7 +75,7 @@ class iResBlock(nn.Module):
             x, x_prev = y - self.nnet(x), x
             i += 1
             if i > threshold:
-                # logger.info('Iterations exceeded {} for inverse.'.format(threshold))
+                logger.info('Iterations exceeded {} for inverse.'.format(threshold))
                 break
         return x
 

@@ -23,7 +23,7 @@ def find_fixed_point(g, y, threshold=100, eps=1e-5):
         i += 1
         if i > threshold:
             logger.info(torch.abs(x - x_prev).max())
-            # logger.info('Iterations exceeded {} for fixed point.'.format(threshold))
+            logger.info('Iterations exceeded {} for fixed point.'.format(threshold))
             break
     return x
 

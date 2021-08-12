@@ -146,7 +146,7 @@ if args.seed is None:
 utils.makedirs(args.save)
 logger = utils.get_logger(logpath=os.path.join(
     args.save, 'logs'), filepath=os.path.abspath(__file__))
-logger.info(args)
+# logger.info(args)
 
 # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 device = torch.device(args.local_rank)
@@ -561,8 +561,8 @@ model = ImplicitFlow(
 ema = utils.ExponentialMovingAverage(model)
 
 
-logger.info(model)
-logger.info('EMA: {}'.format(ema))
+# logger.info(model)
+# logger.info('EMA: {}'.format(ema))
 
 
 # Optimization
@@ -627,7 +627,7 @@ else:
         x = x.to(device)
         model(x, restore=True)
 
-logger.info(optimizer)
+# logger.info(optimizer)
 
 fixed_z = standard_normal_sample([min(32, args.batchsize),
                                   (im_dim + args.padding) * args.imagesize * args.imagesize])
@@ -908,7 +908,8 @@ def visualize(epoch, model, itr, real_imgs):
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
-        fake_imgs = model(fixed_z.to(device), inverse=True).view(-1, *input_size[1:])
+        fake_imgs = model(fixed_z.to(device),
+                          inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)

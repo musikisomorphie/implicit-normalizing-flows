@@ -11,11 +11,6 @@ import torch
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 import torchvision.datasets as vdsets
-import torch.distributed as dist
-import torch.multiprocessing as mp
-from torch.distributed.optim import ZeroRedundancyOptimizer
-from torch.nn.parallel import DistributedDataParallel as DDP
-
 
 from lib.resflow import ACT_FNS, ResidualFlow
 import lib.datasets as datasets
@@ -140,7 +135,7 @@ parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
-# parser = deepspeed.add_config_arguments(parser)
+parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
 # Random seed
@@ -151,10 +146,10 @@ if args.seed is None:
 utils.makedirs(args.save)
 logger = utils.get_logger(logpath=os.path.join(
     args.save, 'logs'), filepath=os.path.abspath(__file__))
-logger.info(args)
+# logger.info(args)
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-# device = torch.device(args.local_rank)
+# device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device(args.local_rank)
 torch.backends.cudnn.benchmark = True
 
 if device.type == 'cuda':
@@ -567,7 +562,7 @@ ema = utils.ExponentialMovingAverage(model)
 
 
 # logger.info(model)
-logger.info('EMA: {}'.format(ema))
+# logger.info('EMA: {}'.format(ema))
 
 
 # Optimization
@@ -603,29 +598,29 @@ else:
     raise ValueError('Unknown optimizer {}'.format(args.optimizer))
 
 best_val_bpd = math.inf
-# if (args.resume is not None):
-#     logger.info('Resuming model from {}'.format(args.resume))
-#     with torch.no_grad():
-#         x = torch.rand(1, *input_size[1:]).to(device)
-#         model(x)
-#     checkpt = torch.load(args.resume)
-#     sd = {k: v for k, v in checkpt['state_dict'].items(
-#     ) if 'last_n_samples' not in k}
-#     state = model.state_dict()
-#     state.update(sd)
-#     model.load_state_dict(state, strict=True)
-#     ema.set(checkpt['ema'])
-#     if 'optimizer_state_dict' in checkpt:
-#         optimizer.load_state_dict(checkpt['optimizer_state_dict'])
-#         # Manually move optimizer state to GPU
-#         for state in optimizer.state.values():
-#             for k, v in state.items():
-#                 if torch.is_tensor(v):
-#                     state[k] = v.to(device)
-#     del checkpt
-#     del state
+if (args.resume is not None):
+    logger.info('Resuming model from {}'.format(args.resume))
+    with torch.no_grad():
+        x = torch.rand(1, *input_size[1:]).to(device)
+        model(x)
+    checkpt = torch.load(args.resume)
+    sd = {k: v for k, v in checkpt['state_dict'].items(
+    ) if 'last_n_samples' not in k}
+    state = model.state_dict()
+    state.update(sd)
+    model.load_state_dict(state, strict=True)
+    ema.set(checkpt['ema'])
+    if 'optimizer_state_dict' in checkpt:
+        optimizer.load_state_dict(checkpt['optimizer_state_dict'])
+        # Manually move optimizer state to GPU
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(device)
+    del checkpt
+    del state
 
-logger.info(optimizer)
+# logger.info(optimizer)
 
 fixed_z = standard_normal_sample([min(32, args.batchsize),
                                   (im_dim + args.padding) * args.imagesize * args.imagesize])
@@ -712,7 +707,7 @@ gnorm_meter = utils.RunningAverageMeter(0.97)
 ce_meter = utils.RunningAverageMeter(0.97)
 
 
-def train(rank, optimizer, epoch, model, trn_loader):
+def train(epoch, model, trn_loader):
 
     model.train()
 
@@ -745,7 +740,7 @@ def train(rank, optimizer, epoch, model, trn_loader):
         #   compute z = f(x)
         #   maximize log p(x) = log p(z) - log |det df/dx|
 
-        x = x.half().to(rank)
+        x = x.half().to(device)
 
         beta = beta = min(1, global_itr /
                           args.annealing_iters) if args.annealing_iters > 0 else 1.
@@ -761,7 +756,7 @@ def train(rank, optimizer, epoch, model, trn_loader):
             secmom_meter.update(secmom)
 
         if args.task in ['classification', 'hybrid']:
-            y = y.to(rank)
+            y = y.to(device)
             crossent = criterion(logits, y)
             ce_meter.update(crossent.item())
 
@@ -830,14 +825,14 @@ def train(rank, optimizer, epoch, model, trn_loader):
 
             logger.info(s)
         if i % args.vis_freq == 0:
-            visualize(rank, epoch, model, i, x)
+            visualize(epoch, model, i, x)
 
         del x
         torch.cuda.empty_cache()
         gc.collect()
 
 
-def validate(rank, epoch, model, dat_loader, phase, ema=None):
+def validate(epoch, model, dat_loader, phase, ema=None):
     """
     Evaluates the cross entropy between p_data and p_model.
     """
@@ -857,12 +852,12 @@ def validate(rank, epoch, model, dat_loader, phase, ema=None):
     start = time.time()
     with torch.no_grad():
         for i, (x, y) in enumerate(tqdm(dat_loader)):
-            x = x.half().to(rank)
+            x = x.half().to(device)
             bpd, logits, _, _ = compute_loss(x, model)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                y = y.to(rank)
+                y = y.to(device)
                 loss = criterion(logits, y)
                 ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)
@@ -881,7 +876,7 @@ def validate(rank, epoch, model, dat_loader, phase, ema=None):
     return bpd_meter.avg
 
 
-def visualize(rank, epoch, model, itr, real_imgs):
+def visualize(epoch, model, itr, real_imgs):
     model.eval()
     utils.makedirs(os.path.join(args.save, 'imgs'))
     real_imgs = real_imgs[:32]
@@ -906,7 +901,8 @@ def visualize(rank, epoch, model, itr, real_imgs):
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
-        fake_imgs = model(fixed_z.to(rank), inverse=True).view(-1, *input_size[1:])
+        fake_imgs = model(fixed_z.to(device),
+                          inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)
@@ -961,34 +957,19 @@ def pretty_repr(a):
     return '[[' + ','.join(list(map(lambda i: f'{i:.2f}', a))) + ']]'
 
 
-def run(rank, world_size, use_zero):
+def main(model, optimizer):
     global best_val_bpd
 
     last_checkpoints = []
     lipschitz_constants = []
     ords = []
 
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '29500'
-    # create default process group
-    dist.init_process_group('nccl', rank=rank, world_size=world_size)
-    ddp_model = DDP(model.to(rank), device_ids=[rank], find_unused_parameters=True)
-
-    if use_zero:
-        optimizer = ZeroRedundancyOptimizer(
-            ddp_model.parameters(),
-            optimizer_class=torch.optim.Adam,
-            lr=1e-3
-        )
-    else:
-        optimizer = torch.optim.Adam(ddp_model.parameters(), lr=1e-3)
-
     # model = parallelize(model)
-    # parameters = filter(lambda p: p.requires_grad, model.parameters())
-    # model, optimizer, _, __ = deepspeed.initialize(args=args,
-    #                                                model=model,
-    #                                                model_parameters=parameters,
-    #                                                optimizer=optimizer)
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model, optimizer, _, __ = deepspeed.initialize(args=args,
+                                                   model=model,
+                                                   model_parameters=parameters,
+                                                   optimizer=optimizer)
 
     # if args.resume:
     #     validate(args.begin_epoch - 1, model, ema)
@@ -996,18 +977,16 @@ def run(rank, world_size, use_zero):
 
         logger.info('Current LR {}'.format(optimizer.param_groups[0]['lr']))
 
-        train(rank, optimizer, epoch, ddp_model, trn_loader)
-        lipschitz_constants.append(get_lipschitz_constants(ddp_model))
-        ords.append(get_ords(ddp_model))
+        train(epoch, model, trn_loader)
+        lipschitz_constants.append(get_lipschitz_constants(model))
+        ords.append(get_ords(model))
         logger.info('Lipsh: {}'.format(pretty_repr(lipschitz_constants[-1])))
         logger.info('Order: {}'.format(pretty_repr(ords[-1])))
 
         if args.ema_val:
-            val_bpd = validate(rank, optimizer, epoch,
-                               ddp_model, tst_loader[0], 'VAL', ema)
+            val_bpd = validate(epoch, model, tst_loader[0], 'VAL', ema)
         else:
-            val_bpd = validate(rank, optimizer, epoch,
-                               ddp_model, tst_loader[0], 'VAL')
+            val_bpd = validate(epoch, model, tst_loader[0], 'VAL')
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
@@ -1038,13 +1017,5 @@ def run(rank, world_size, use_zero):
     torch.cuda.synchronize()
 
 
-def main():
-    world_size = torch.cuda.device_count()
-    mp.spawn(run,
-             args=(world_size, True),
-             nprocs=world_size,
-             join=True)
-
-
 if __name__ == '__main__':
-    main()
+    main(model, optimizer)
