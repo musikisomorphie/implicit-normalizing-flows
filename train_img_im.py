@@ -630,7 +630,7 @@ else:
 logger.info(optimizer)
 
 fixed_z = standard_normal_sample([min(32, args.batchsize),
-                                  (im_dim + args.padding) * args.imagesize * args.imagesize]).to(device)
+                                  (im_dim + args.padding) * args.imagesize * args.imagesize])
 
 criterion = torch.nn.CrossEntropyLoss()
 
@@ -908,7 +908,7 @@ def visualize(epoch, model, itr, real_imgs):
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
-        fake_imgs = model(fixed_z, inverse=True).view(-1, *input_size[1:])
+        fake_imgs = model(fixed_z.to(device), inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)
@@ -1015,10 +1015,10 @@ def main(model, optimizer):
         #     'val_bpd': val_bpd,
         # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
-        if args.ema_val:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
-        else:
-            tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
+        # if args.ema_val:
+        #     tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
+        # else:
+        #     tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
 
     torch.cuda.synchronize()
 
