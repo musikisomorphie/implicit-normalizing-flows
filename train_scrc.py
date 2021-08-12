@@ -207,9 +207,14 @@ for i in range(2):
                                                   drop_last=True))
 
 
+
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
-                               chn_dim=len(scrc_in)).to(device)
+                               chn_dim=len(scrc_in)).half()
+for layer in model.modules():
+  if isinstance(layer, torch.nn.BatchNorm2d):
+    layer.float()
+model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 criterion = torch.nn.CrossEntropyLoss()
 
@@ -237,7 +242,7 @@ for epoch in range(args.begin_epoch, args.nepochs):
         bat_id = np.random.rand(x.shape[0]).argsort()
         x = x[bat_id, ]
         y = y[bat_id, ]
-        x = x.to(device)
+        x = x.half().to(device)
         y = y.to(device)
 
         logits = model(x)
@@ -258,7 +263,7 @@ for epoch in range(args.begin_epoch, args.nepochs):
     model.eval()
     tot, cor = 0, 0
     for _, (x, y) in enumerate(tst_loader[1]):
-        x = x.to(device)
+        x = x.half().to(device)
         y = y.to(device)
         lgts = model(x)
         _, pred = lgts.max(1)
