@@ -207,7 +207,6 @@ for i in range(2):
                                                   drop_last=True))
 
 
-
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
                                chn_dim=len(scrc_in)).half()
@@ -228,11 +227,11 @@ for epoch in range(args.begin_epoch, args.nepochs):
     model.train()
     total, correct = 0, 0
     trn_iter = iter(trn_loader[0])
-    for i, (x_1, y_1) in enumerate(trn_loader[1]):
+    for i, (x_1, y_1) in enumerate(trn_loader[0]):
         try:
             (x_0, y_0) = next(trn_iter)
         except StopIteration:
-            trn_iter = iter(trn_loader[0])
+            trn_iter = iter(trn_loader[1])
             (x_0, y_0) = next(trn_iter)
 
         optimizer.zero_grad()
