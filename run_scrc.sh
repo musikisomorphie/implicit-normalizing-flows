@@ -1,4 +1,5 @@
-CUDA_VISIBLE_DEVICES=0 python train_scrc.py --data scrc --actnorm True --task hybrid \
+CUDA_VISIBLE_DEVICES=0,1,2,3 deepspeed train_scrc.py --cuda  --data scrc --deepspeed_config config_re.json \
+    --actnorm True --task hybrid \
     --nblocks 1-1-1 --print-freq 60 \
     --save 'experiments/' --imagesize 256 \
     --dataroot /raid/jiqing/Data/SCRC --batchsize 32 --val-batchsize 64 --nepochs 100 \

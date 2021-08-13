@@ -19,9 +19,17 @@ import lib.utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
+import deepspeed
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--backend', type=str, default='nccl',
+                    help='distributed backend')
+parser.add_argument('--local_rank',
+                    type=int,
+                    default=-1,
+                    help='local rank passed from distributed launcher')
+parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--aug', type=str,
@@ -135,9 +143,11 @@ parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
+parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+# device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device(args.local_rank)
 torch.backends.cudnn.benchmark = True
 
 if args.aug == 'r':
@@ -213,8 +223,15 @@ model = utils.initialize_model(args.classifier,
 # for layer in model.modules():
 #   if isinstance(layer, torch.nn.BatchNorm2d):
 #     layer.float()
-model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3)
+# model.to(device)
+# optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3)
+model.half()
+parameters = filter(lambda p: p.requires_grad, model.parameters())
+model, optimizer, _, __ = deepspeed.initialize(args=args,
+                                               model=model,
+                                               model_parameters=parameters,
+                                               optimizer=optimizer)
+
 criterion = torch.nn.CrossEntropyLoss()
 
 
