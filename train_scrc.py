@@ -223,7 +223,7 @@ model = utils.initialize_model(args.classifier,
 
 model.half()
 # model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=0.1)
+optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=0.01)
 parameters = filter(lambda p: p.requires_grad, model.parameters())
 model, optimizer, _, __ = deepspeed.initialize(args=args,
                                                model=model,
