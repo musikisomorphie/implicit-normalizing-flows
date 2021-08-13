@@ -623,7 +623,7 @@ if (args.resume is not None):
 # logger.info(optimizer)
 
 fixed_z = standard_normal_sample([min(32, args.batchsize),
-                                  (im_dim + args.padding) * args.imagesize * args.imagesize])
+                                  (im_dim + args.padding) * args.imagesize * args.imagesize]).to(device)
 
 criterion = torch.nn.CrossEntropyLoss()
 
@@ -666,7 +666,6 @@ def compute_loss(x, model, beta=1.0):
         bits_per_dim = - \
             torch.mean(logpx) / (args.imagesize *
                                  args.imagesize * im_dim) / np.log(2)
-        # print(logpz, logpx, bits_per_dim)
 
         logpz = torch.mean(logpz).detach()
         delta_logp = torch.mean(-delta_logp).detach()
@@ -775,10 +774,8 @@ def train(epoch, model, trn_loader):
             if not args.scale_dim:
                 bpd = bpd * (args.imagesize * args.imagesize * im_dim)
             # Change cross entropy from nats to bits.
-            crossent.backward()
-            # bpd.backward()
-        #     loss = bpd + crossent / np.log(2)
-        # loss.backward()
+            loss = bpd + crossent / np.log(2)
+        loss.backward()
 
         if global_itr % args.update_freq == args.update_freq - 1:
 
@@ -904,8 +901,7 @@ def visualize(epoch, model, itr, real_imgs):
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
-        fake_imgs = model(fixed_z.to(device),
-                          inverse=True).view(-1, *input_size[1:])
+        fake_imgs = model(fixed_z, inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)
