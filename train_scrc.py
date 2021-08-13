@@ -221,7 +221,7 @@ model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
                                chn_dim=len(scrc_in))
 
-model.half()
+# model.half()
 # model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=0.01)
 parameters = filter(lambda p: p.requires_grad, model.parameters())
@@ -256,7 +256,7 @@ for epoch in range(args.begin_epoch, args.nepochs):
         bat_id = np.random.rand(x.shape[0]).argsort()
         x = x[bat_id, ]
         y = y[bat_id, ]
-        x = x.half().to(device)
+        x = x.to(device)
         y = y.to(device)
 
         logits = model(x)
@@ -277,7 +277,7 @@ for epoch in range(args.begin_epoch, args.nepochs):
     model.eval()
     tot, cor = 0, 0
     for _, (x, y) in enumerate(tst_loader[1]):
-        x = x.half().to(device)
+        x = x.to(device)
         y = y.to(device)
         lgts = model(x)
         _, pred = lgts.max(1)
