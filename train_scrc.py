@@ -224,8 +224,8 @@ model = utils.initialize_model(args.classifier,
 #   if isinstance(layer, torch.nn.BatchNorm2d):
 #     layer.float()
 # model.to(device)
-# optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3)
 model.half()
+optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3)
 parameters = filter(lambda p: p.requires_grad, model.parameters())
 model, optimizer, _, __ = deepspeed.initialize(args=args,
                                                model=model,
