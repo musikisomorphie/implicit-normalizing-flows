@@ -776,7 +776,7 @@ def train(epoch, model, trn_loader):
                 bpd = bpd * (args.imagesize * args.imagesize * im_dim)
             # Change cross entropy from nats to bits.
             crossent.backward()
-            bpd.backward()
+            # bpd.backward()
         #     loss = bpd + crossent / np.log(2)
         # loss.backward()
 
