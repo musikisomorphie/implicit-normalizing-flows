@@ -465,8 +465,8 @@ elif args.data == 'scrc':
     tst_size = 384
 
     im_dim = len(scrc_in)
-    if args.squeeze_first:
-        im_dim *= 4
+    # if args.squeeze_first:
+    #     im_dim *= 4
     n_classes = 4
 
     trn_data, trn_loader = list(), list()
@@ -644,9 +644,11 @@ def compute_loss(x, model, beta=1.0):
     else:
         nvals = 256
 
-    # x, logpu = add_padding(x, nvals)
+    x, logpu = add_padding(x, nvals)
+
     if args.squeeze_first:
         x = squeeze_layer(x)
+
     if args.task == 'hybrid':
         z_logp, logits_tensor = model(
             x.view(-1, *input_size[1:]), 0, classify=True)
@@ -663,8 +665,8 @@ def compute_loss(x, model, beta=1.0):
 
         # log p(x)
         logpx = logpz - beta * delta_logp - np.log(nvals) * (
-            args.imagesize * args.imagesize * (im_dim + args.padding))
-
+            args.imagesize * args.imagesize * (im_dim + args.padding)
+        ) - logpu
         bits_per_dim = - \
             torch.mean(logpx) / (args.imagesize *
                                  args.imagesize * im_dim) / np.log(2)
@@ -826,8 +828,8 @@ def train(epoch, model, trn_loader):
                     100 * correct / total, ce_meter=ce_meter)
 
             logger.info(s)
-        # if i % args.vis_freq == 0:
-        #     visualize(epoch, model, i, x)
+        if i % args.vis_freq == 0:
+            visualize(epoch, model, i, x)
 
         del x
         torch.cuda.empty_cache()
@@ -893,25 +895,24 @@ def visualize(epoch, model, itr, real_imgs):
 
     with torch.no_grad():
         # reconstructed real images
-        # real_imgs, _ = add_padding(real_imgs, nvals)
+        real_imgs, _ = add_padding(real_imgs, nvals)
         if args.squeeze_first:
             real_imgs = squeeze_layer(real_imgs)
         recon_imgs = model(model(
             real_imgs.view(-1, *input_size[1:])), inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             recon_imgs = squeeze_layer.inverse(recon_imgs)
-        # recon_imgs = remove_padding(recon_imgs)
+        recon_imgs = remove_padding(recon_imgs)
 
         # random samples
         fake_imgs = model(fixed_z, inverse=True).view(-1, *input_size[1:])
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
-        # fake_imgs = remove_padding(fake_imgs)
+        fake_imgs = remove_padding(fake_imgs)
 
         fake_imgs = fake_imgs.view(-1, im_dim, args.imagesize, args.imagesize)
         recon_imgs = recon_imgs.view(-1, im_dim,
                                      args.imagesize, args.imagesize)
-        print('visual ', _real_imgs.shape, fake_imgs.shape, recon_imgs.shape)
         imgs = torch.cat([_real_imgs, fake_imgs, recon_imgs], 0)
 
         filename = os.path.join(
