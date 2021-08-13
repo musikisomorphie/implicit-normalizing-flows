@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=0,1,2,3 deepspeed train_scrc.py --cuda  --data scrc --deepspeed_config config_re.json \
+CUDA_VISIBLE_DEVICES=0,1,2,3 deepspeed train_scrc.py --cuda  --data scrc --deepspeed_config config_scrc.json \
     --actnorm True --task hybrid \
     --nblocks 1-1-1 --print-freq 60 \
     --save 'experiments/' --imagesize 256 \
