@@ -465,6 +465,8 @@ elif args.data == 'scrc':
     tst_size = 384
 
     im_dim = len(scrc_in)
+    if args.squeeze_first:
+        im_dim *= 4
     n_classes = 4
 
     trn_data, trn_loader = list(), list()
