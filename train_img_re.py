@@ -442,7 +442,7 @@ elif args.data == 'scrc':
     init_layer = layers.LogitTransform(0.05)
 
     trn_trans = transforms.Compose([
-        transforms.Resize(200),
+        # transforms.Resize(200),
         transforms.RandomCrop(args.imagesize),
         # transforms.ColorJitter(),
         # transforms.RandomHorizontalFlip(),
@@ -453,7 +453,7 @@ elif args.data == 'scrc':
     ])
 
     tst_trans = transforms.Compose([
-        transforms.Resize(200),
+        # transforms.Resize(200),
         transforms.CenterCrop(args.imagesize)
     ])
 
