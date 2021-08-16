@@ -19,7 +19,7 @@ import lib.utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
-import deepspeed
+# import deepspeed
 
 
 parser = argparse.ArgumentParser()
@@ -143,11 +143,38 @@ parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
-parser = deepspeed.add_config_arguments(parser)
+# parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
-# device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-device = torch.device(args.local_rank)
+
+def compute_acc(logits, labs,
+                tot, cor, n_class):
+
+    _, prds = logits.max(1)
+    acc = list()
+    for cms in range(n_class + 1):
+        if cms < n_class:
+            lcms = labs[labs == cms]
+            pcms = prds[labs == cms]
+        else:
+            lcms = labs
+            pcms = prds
+
+        tot[cms] += lcms.size(0)
+        cor[cms] += pcms.eq(lcms).sum().item()
+        acc.append(100. * cor[cms] / (tot[cms] + 1e-4))
+    return acc
+
+
+def print_msg(logger, acc, epoch, phase, n_clas, prefix=''):
+    msg = prefix + '[{}] Epoch: {} | Acc: {:.2f} '. \
+        format(phase, epoch, acc[-1])
+    for cms in range(n_clas):
+        msg += '| CMS_{}: {:.2f}'.format(cms + 1, acc[cms])
+    logger.info(msg)
+
+
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 torch.backends.cudnn.benchmark = True
 
 if args.aug == 'r':
@@ -202,8 +229,9 @@ tst_len = torch.load(str(tst_path))[0].shape[0]
 print('test data size {}'.format(tst_len))
 tst_idx = np.random.rand(tst_len).argsort()
 tst_data, tst_loader = list(), list()
-for i in range(2):
-    tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
+for i in range(1):
+    # tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
+    tst_sub_idx = tst_idx
     tst_data.append(datasets.SCRC(tst_path,
                                   tst_sub_idx,
                                   scrc_in,
@@ -217,30 +245,41 @@ for i in range(2):
                                                   drop_last=True))
 
 
+input_size = (args.batchsize, len(scrc_in),
+              args.imagesize, args.imagesize)
+# dataset_size = len(train_loader.dataset)
+
+if args.squeeze_first:
+    input_size = (input_size[0], input_size[1] * 16,
+                  input_size[2] // 4, input_size[3] // 4)
+    squeeze_layer = layers.SqueezeLayer(4)
+
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
-                               chn_dim=len(scrc_in))
+                               chn_dim=len(scrc_in) * 16 if args.squeeze_first else len(scrc_in))
 
-# model.half()
-# model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=0.01)
-parameters = filter(lambda p: p.requires_grad, model.parameters())
-model, optimizer, _, __ = deepspeed.initialize(args=args,
-                                               model=model,
-                                               model_parameters=parameters,
-                                               optimizer=optimizer)
-
+model.to(device)
+optimizer = optim.Adam(model.parameters(), lr=args.lr)
 criterion = torch.nn.CrossEntropyLoss()
 
 
 save_path = pathlib.Path(args.save) / \
-    '{}_{}_{}'.format(args.env, args.aug, args.inp)
+    '{}_{}_{}_{}_{}'.format(args.env, args.aug, args.inp,
+                            args.imagesize, args.batchsize)
 save_path.mkdir(parents=True, exist_ok=True)
+
 logger = utils.custom_logger(str(save_path / 'train.log'))
-best_tst, best_trn, best_epoch = 0., 0., 0.
+best_trn_0 = [0. for _ in range(n_classes + 1)]
+best_trn_1 = [0. for _ in range(n_classes + 1)]
+best_tst = [0. for _ in range(n_classes + 1)]
+best_epoch = 0.
 for epoch in range(args.begin_epoch, args.nepochs):
+    # print(epoch)
     model.train()
-    total, correct = 0, 0
+    total_0 = [0. for _ in range(n_classes + 1)]
+    correct_0 = [0. for _ in range(n_classes + 1)]
+    total_1 = [0. for _ in range(n_classes + 1)]
+    correct_1 = [0. for _ in range(n_classes + 1)]
     trn_iter = iter(trn_loader[0])
     for i, (x_1, y_1) in enumerate(trn_loader[0]):
         try:
@@ -254,53 +293,69 @@ for epoch in range(args.begin_epoch, args.nepochs):
         x = torch.cat((x_0, x_1), dim=0)
         y = torch.cat((y_0, y_1), dim=0)
         bat_id = np.random.rand(x.shape[0]).argsort()
+        bat_id_rev = bat_id.argsort()
         x = x[bat_id, ]
         y = y[bat_id, ]
+        # bat_id_rev = bat_id.argsort()
+        # x_1 = x[bat_id, ].detach()
+        # y_1 = y[bat_id, ].detach()
+        # x_2 = x_1[bat_id_rev, ].detach()
+        # y_2 = y_1[bat_id_rev, ].detach()
+        # assert torch.all(x_2 == x)
+        # assert torch.all(y_2 == y), '{} \n {}'.format(y_2, y)
+
         x = x.to(device)
         y = y.to(device)
 
-        logits = model(x)
+        if args.squeeze_first:
+            x = squeeze_layer(x)
+
+        logits = model(x.view(-1, *input_size[1:]))
         loss = criterion(logits, y)
 
-        _, predicted = logits.max(1)
-        total += y.size(0)
-        correct += predicted.eq(y).sum().item()
+        prd = logits.detach()
+        prd = prd[bat_id_rev, ]
+        lab = y.detach()
+        lab = lab[bat_id_rev, ]
+        acc0 = compute_acc(prd[:prd.shape[0] // 2, ],
+                           lab[:prd.shape[0] // 2, ], total_0, correct_0, n_classes)
+        acc1 = compute_acc(prd[prd.shape[0] // 2:, ],
+                           lab[prd.shape[0] // 2:, ], total_1, correct_1, n_classes)
 
         loss.backward()
         optimizer.step()
 
-        if i % args.print_freq == 0:
-            print(x.shape, y.shape)
-            logger.info('Epoch: {} | Iter: {} | Acc: {}'.format(
-                epoch, i, 100. * correct / total))
+        # if i % args.print_freq == 0:
+        #     print(x.shape, y.shape)
+        #     logger.info('Epoch: {} | Iter: {} | Acc: {}'.format(
+        #         epoch, i, accuracy[-1]))
+
+    print_msg(logger, acc0, epoch, 'TRN_0', n_classes)
+    print_msg(logger, acc1, epoch, 'TRN_1', n_classes)
 
     model.eval()
-    tot, cor = 0, 0
-    for _, (x, y) in enumerate(tst_loader[1]):
+    tot = [0. for _ in range(n_classes + 1)]
+    cor = [0. for _ in range(n_classes + 1)]
+    for _, (x, y) in enumerate(tst_loader[0]):
         x = x.to(device)
         y = y.to(device)
-        lgts = model(x)
-        _, pred = lgts.max(1)
-        tot += y.size(0)
-        cor += pred.eq(y).sum().item()
 
-    logger.info('[TEST] Epoch: {} | Acc: {}'.format(epoch, 100. * cor / tot))
+        if args.squeeze_first:
+            x = squeeze_layer(x)
+        lgts = model(x.view(-1, *input_size[1:]))
+        acc = compute_acc(lgts, y, tot, cor, n_classes)
 
-    if best_tst < cor / tot:
-        best_tst = cor / tot
-        best_trn = correct / total
+    print_msg(logger, acc, epoch, 'TST', n_classes)
+
+    if best_tst[-1] < acc[-1]:
+        best_tst = acc
+        best_trn_0 = acc0
+        best_trn_1 = acc1
         best_epoch = epoch
         model_file = save_path / 'best_model.pt'
         torch.save(model.state_dict(), str(model_file))
 
-logger.info('[Best] Epoch: {} | Train_acc: {:.2f} | Test_acc: {:.2f}'.
-            format(best_epoch, 100. * best_trn, 100. * best_tst))
+print_msg(logger, best_trn_0, best_epoch, 'TRN_0', n_classes, '[BEST] ')
+print_msg(logger, best_trn_1, best_epoch, 'TRN_1', n_classes, '[BEST] ')
+print_msg(logger, best_tst, best_epoch, 'TST', n_classes, '[BEST] ')
 
-# trn_iter = iter(trn_loader[0])
-# for i, (x_1, y_1) in enumerate(trn_loader[1]):
-#     try:
-#         (x_0, y_0) = next(trn_iter)
-#     except StopIteration:
-#         trn_iter = iter(trn_loader[0])
-#         (x_0, y_0) = next(trn_iter)
-#     break

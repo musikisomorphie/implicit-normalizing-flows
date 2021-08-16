@@ -778,7 +778,7 @@ def train(epoch, model, trn_loader):
             if not args.scale_dim:
                 bpd = bpd * (args.imagesize * args.imagesize * im_dim)
             # Change cross entropy from nats to bits.
-            loss = bqd
+            loss = bpd
         loss.backward()
 
         if global_itr % args.update_freq == args.update_freq - 1:
