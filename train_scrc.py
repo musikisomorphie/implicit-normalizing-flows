@@ -148,29 +148,31 @@ args = parser.parse_args()
 
 
 def compute_acc(logits, labs,
-                tot, cor, n_class):
+                met, n_class):
 
     _, prds = logits.max(1)
-    acc = list()
     for cms in range(n_class + 1):
         if cms < n_class:
             lcms = labs[labs == cms]
             pcms = prds[labs == cms]
+            met[0, cms] += (prds == cms).sum().item()
         else:
             lcms = labs
             pcms = prds
 
-        tot[cms] += lcms.size(0)
-        cor[cms] += pcms.eq(lcms).sum().item()
-        acc.append(100. * cor[cms] / (tot[cms] + 1e-4))
-    return acc
+        met[1, cms] += lcms.eq(pcms).sum().item()
+        met[2, cms] += lcms.size(0)
 
 
-def print_msg(logger, acc, epoch, phase, n_clas, prefix=''):
-    msg = prefix + '[{}] Epoch: {} | Acc: {:.2f} '. \
-        format(phase, epoch, acc[-1])
+def print_msg(logger, met, epoch, phase, n_clas, prefix='', eps=1e-5):
+    msg = prefix + '[{}] Epoch: {} | Acc: {:.4%} '. \
+        format(phase, epoch, met[1, -1] / (met[2, -1] + eps))
     for cms in range(n_clas):
-        msg += '| CMS_{}: {:.2f}'.format(cms + 1, acc[cms])
+        msg += '| CMS_{}: {:.4%}, {:.4%}, {:.2f} '. \
+            format(cms + 1,
+                   met[1, cms] / (met[2, cms] + eps),
+                   met[0, cms] / (met[0, :-1].sum() + eps),
+                   met[0, cms])
     logger.info(msg)
 
 
@@ -256,7 +258,7 @@ if args.squeeze_first:
 
 model = utils.initialize_model(args.classifier,
                                num_classes=n_classes,
-                               chn_dim=len(scrc_in) * 16 if args.squeeze_first else len(scrc_in))
+                               chn_dim=len(scrc_in) * 4 if args.squeeze_first else len(scrc_in))
 
 model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -269,17 +271,15 @@ save_path = pathlib.Path(args.save) / \
 save_path.mkdir(parents=True, exist_ok=True)
 
 logger = utils.custom_logger(str(save_path / 'train.log'))
-best_trn_0 = [0. for _ in range(n_classes + 1)]
-best_trn_1 = [0. for _ in range(n_classes + 1)]
-best_tst = [0. for _ in range(n_classes + 1)]
+best_trn_0 = np.zeros((3, n_classes + 1))
+best_trn_1 = np.zeros_like(best_trn_0)
+best_tst = np.zeros_like(best_trn_0)
 best_epoch = 0.
 for epoch in range(args.begin_epoch, args.nepochs):
     # print(epoch)
     model.train()
-    total_0 = [0. for _ in range(n_classes + 1)]
-    correct_0 = [0. for _ in range(n_classes + 1)]
-    total_1 = [0. for _ in range(n_classes + 1)]
-    correct_1 = [0. for _ in range(n_classes + 1)]
+    met_0 = np.zeros_like(best_trn_0)
+    met_1 = np.zeros_like(best_trn_0)
     trn_iter = iter(trn_loader[0])
     for i, (x_1, y_1) in enumerate(trn_loader[0]):
         try:
@@ -310,47 +310,47 @@ for epoch in range(args.begin_epoch, args.nepochs):
         if args.squeeze_first:
             x = squeeze_layer(x)
 
-        logits = model(x.view(-1, *input_size[1:]))
+        logits = model(torch.pixel_shuffle(x, 2))
         loss = criterion(logits, y)
 
         prd = logits.detach()
         prd = prd[bat_id_rev, ]
         lab = y.detach()
         lab = lab[bat_id_rev, ]
-        acc0 = compute_acc(prd[:prd.shape[0] // 2, ],
-                           lab[:prd.shape[0] // 2, ], total_0, correct_0, n_classes)
-        acc1 = compute_acc(prd[prd.shape[0] // 2:, ],
-                           lab[prd.shape[0] // 2:, ], total_1, correct_1, n_classes)
+        compute_acc(prd[:prd.shape[0] // 2, ],
+                    lab[:prd.shape[0] // 2, ],
+                    met_0,
+                    n_classes)
+        compute_acc(prd[prd.shape[0] // 2:, ],
+                    lab[prd.shape[0] // 2:, ],
+                    met_1,
+                    n_classes)
 
         loss.backward()
         optimizer.step()
 
-        # if i % args.print_freq == 0:
-        #     print(x.shape, y.shape)
-        #     logger.info('Epoch: {} | Iter: {} | Acc: {}'.format(
-        #         epoch, i, accuracy[-1]))
-
-    print_msg(logger, acc0, epoch, 'TRN_0', n_classes)
-    print_msg(logger, acc1, epoch, 'TRN_1', n_classes)
+    print_msg(logger, met_0, epoch, 'TRN_0', n_classes)
+    print_msg(logger, met_1, epoch, 'TRN_1', n_classes)
 
     model.eval()
-    tot = [0. for _ in range(n_classes + 1)]
-    cor = [0. for _ in range(n_classes + 1)]
+    met = np.zeros_like(best_trn_0)
     for _, (x, y) in enumerate(tst_loader[0]):
         x = x.to(device)
         y = y.to(device)
 
         if args.squeeze_first:
             x = squeeze_layer(x)
-        lgts = model(x.view(-1, *input_size[1:]))
-        acc = compute_acc(lgts, y, tot, cor, n_classes)
+        lgts = model(torch.pixel_shuffle(x, 2))
+        compute_acc(lgts, y, met, n_classes)
 
-    print_msg(logger, acc, epoch, 'TST', n_classes)
+    print_msg(logger, met, epoch, 'TST', n_classes)
 
-    if best_tst[-1] < acc[-1]:
-        best_tst = acc
-        best_trn_0 = acc0
-        best_trn_1 = acc1
+    is_best = best_tst[1, -1] / (best_tst[2, -1] + 1e-5) < \
+        met[1, -1] / (met[2, -1] + 1e-5)
+    if is_best:
+        best_trn_0 = met_0
+        best_trn_1 = met_1
+        best_tst = met
         best_epoch = epoch
         model_file = save_path / 'best_model.pt'
         torch.save(model.state_dict(), str(model_file))
@@ -358,4 +358,3 @@ for epoch in range(args.begin_epoch, args.nepochs):
 print_msg(logger, best_trn_0, best_epoch, 'TRN_0', n_classes, '[BEST] ')
 print_msg(logger, best_trn_1, best_epoch, 'TRN_1', n_classes, '[BEST] ')
 print_msg(logger, best_tst, best_epoch, 'TST', n_classes, '[BEST] ')
-
