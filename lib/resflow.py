@@ -238,7 +238,7 @@ class ResidualFlow(nn.Module):
             return self.inverse(x, logpx)
         out = []
         if classify:
-            logits = self.classifier(x)
+            logits = self.classifier(torch.pixel_shuffle(x, 2))
         for idx in range(len(self.transforms)):
             if logpx is not None:
                 x, logpx = self.transforms[idx].forward(

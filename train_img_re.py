@@ -559,7 +559,7 @@ model = ResidualFlow(
     n_classes=n_classes,
     block_type=args.block,
     classifier=args.classifier,
-    chn_dim=im_dim
+    chn_dim=input_size[1] // 4
 )
 # model = model.half()
 ema = utils.ExponentialMovingAverage(model)
@@ -775,10 +775,10 @@ def train(epoch, model, trn_loader):
         elif args.task == 'classification':
             loss = crossent
         else:
-            if not args.scale_dim:
-                bpd = bpd * (args.imagesize * args.imagesize * im_dim)
+            # if not args.scale_dim:
+            #     bpd = bpd * (args.imagesize * args.imagesize * im_dim)
             # Change cross entropy from nats to bits.
-            loss = bpd
+            loss = bpd + crossent
         loss.backward()
 
         if global_itr % args.update_freq == args.update_freq - 1:
@@ -824,8 +824,8 @@ def train(epoch, model, trn_loader):
                 )
 
             if args.task in ['classification', 'hybrid']:
-                s += ' | CE {ce_meter.avg:.4f} | Acc {0:.4f}'.format(
-                    100 * correct / total, ce_meter=ce_meter)
+                s += ' | CE {ce_meter.avg:.4f} | Acc {:.4%}'.format(
+                    correct / total, ce_meter=ce_meter)
 
             logger.info(s)
         if i % args.vis_freq == 0:
@@ -874,7 +874,7 @@ def validate(epoch, model, dat_loader, phase, ema=None):
     s = '{} | Epoch: [{}]\tTime {:.2f} | bits/dim {bpd_meter.avg:.4f}'.format(
         phase, epoch, val_time, bpd_meter=bpd_meter)
     if args.task in ['classification', 'hybrid']:
-        s += ' | CE {:.4f} | Acc {:.2f}'.format(
+        s += ' | CE {:.4f} | Acc {:.4%}'.format(
             ce_meter.avg, 100 * correct / total)
     logger.info(s)
     return bpd_meter.avg
