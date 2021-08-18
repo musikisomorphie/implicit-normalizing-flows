@@ -519,9 +519,9 @@ input_size = (args.batchsize, im_dim + args.padding,
 # dataset_size = len(train_loader.dataset)
 
 if args.squeeze_first:
-    input_size = (input_size[0], input_size[1] * 4,
-                  input_size[2] // 2, input_size[3] // 2)
-    squeeze_layer = layers.SqueezeLayer(2)
+    input_size = (input_size[0], input_size[1] * 16,
+                  input_size[2] // 4, input_size[3] // 4)
+    squeeze_layer = layers.SqueezeLayer(4)
 print('input size', input_size)
 # Model
 model = ResidualFlow(
