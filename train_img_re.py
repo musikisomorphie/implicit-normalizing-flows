@@ -825,8 +825,8 @@ def train(epoch, model, trn_loader):
                 )
 
             if args.task in ['classification', 'hybrid']:
-                s += ' | CE {ce_meter.avg:.4f} | Acc {:.4%}'.format(
-                    correct / total, ce_meter=ce_meter)
+                s += ' | CE {:.4f} | Acc {:.4%}'.format(
+                    ce_meter.avg, correct / total)
 
             logger.info(s)
         if i % args.vis_freq == 0:
@@ -876,7 +876,7 @@ def validate(epoch, model, dat_loader, phase, ema=None):
         phase, epoch, val_time, bpd_meter=bpd_meter)
     if args.task in ['classification', 'hybrid']:
         s += ' | CE {:.4f} | Acc {:.4%}'.format(
-            ce_meter.avg, 100 * correct / total)
+            ce_meter.avg, correct / total)
     logger.info(s)
     return bpd_meter.avg
 
