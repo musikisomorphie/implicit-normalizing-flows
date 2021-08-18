@@ -445,11 +445,11 @@ elif args.data == 'scrc':
         # transforms.Resize(200),
         transforms.RandomCrop(args.imagesize),
         # transforms.ColorJitter(),
-        # transforms.RandomHorizontalFlip(),
-        # transforms.RandomVerticalFlip(),
-        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
-        # transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation((90, 90))], p=0.5),
     ])
 
     tst_trans = transforms.Compose([
