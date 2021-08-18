@@ -487,8 +487,9 @@ elif args.data == 'scrc':
     print('test data size {}'.format(tst_len))
     tst_idx = np.random.rand(tst_len).argsort()
     tst_data, tst_loader = list(), list()
-    for i in range(2):
-        tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
+    for i in range(1):
+        # tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
+        tst_sub_idx = tst_idx
         tst_data.append(datasets.SCRC(tst_path,
                                       tst_sub_idx,
                                       scrc_in,
