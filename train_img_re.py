@@ -465,8 +465,6 @@ elif args.data == 'scrc':
     tst_size = 384
 
     im_dim = len(scrc_in)
-    # if args.squeeze_first:
-    #     im_dim *= 4
     n_classes = 4
 
     trn_data, trn_loader = list(), list()
@@ -520,7 +518,7 @@ input_size = (args.batchsize, im_dim + args.padding,
 # dataset_size = len(train_loader.dataset)
 
 if args.squeeze_first:
-    input_size = (input_size[0], input_size[1] * 16,
+    input_size = (input_size[0], input_size[1] * 16 + 1,
                   input_size[2] // 4, input_size[3] // 4)
     squeeze_layer = layers.SqueezeLayer(4)
 print('input size', input_size)
@@ -560,7 +558,7 @@ model = ResidualFlow(
     n_classes=n_classes,
     block_type=args.block,
     classifier=args.classifier,
-    chn_dim=input_size[1] // 4
+    chn_dim=(input_size[1]-1) // 4
 )
 # model = model.half()
 ema = utils.ExponentialMovingAverage(model)
@@ -603,37 +601,37 @@ else:
     raise ValueError('Unknown optimizer {}'.format(args.optimizer))
 
 best_val_bpd = math.inf
-if (args.resume is not None):
-    logger.info('Resuming model from {}'.format(args.resume))
-    with torch.no_grad():
-        x = torch.rand(1, *input_size[1:]).to(device)
-        model(x)
-    checkpt = torch.load(args.resume)
-    sd = {k: v for k, v in checkpt['state_dict'].items(
-    ) if 'last_n_samples' not in k}
-    state = model.state_dict()
-    state.update(sd)
-    model.load_state_dict(state, strict=True)
-    ema.set(checkpt['ema'])
-    if 'optimizer_state_dict' in checkpt:
-        optimizer.load_state_dict(checkpt['optimizer_state_dict'])
-        # Manually move optimizer state to GPU
-        for state in optimizer.state.values():
-            for k, v in state.items():
-                if torch.is_tensor(v):
-                    state[k] = v.to(device)
-    del checkpt
-    del state
+# if (args.resume is not None):
+#     logger.info('Resuming model from {}'.format(args.resume))
+#     with torch.no_grad():
+#         x = torch.rand(1, *input_size[1:]).to(device)
+#         model(x)
+#     checkpt = torch.load(args.resume)
+#     sd = {k: v for k, v in checkpt['state_dict'].items(
+#     ) if 'last_n_samples' not in k}
+#     state = model.state_dict()
+#     state.update(sd)
+#     model.load_state_dict(state, strict=True)
+#     ema.set(checkpt['ema'])
+#     if 'optimizer_state_dict' in checkpt:
+#         optimizer.load_state_dict(checkpt['optimizer_state_dict'])
+#         # Manually move optimizer state to GPU
+#         for state in optimizer.state.values():
+#             for k, v in state.items():
+#                 if torch.is_tensor(v):
+#                     state[k] = v.to(device)
+#     del checkpt
+#     del state
 
 # logger.info(optimizer)
 
-fixed_z = standard_normal_sample([min(32, args.batchsize),
-                                  (im_dim + args.padding) * args.imagesize * args.imagesize]).to(device)
+# fixed_z = standard_normal_sample([min(32, args.batchsize),
+#                                   input_size[1] * input_size[2] * input_size[3]]).to(device)
 
 criterion = torch.nn.CrossEntropyLoss()
 
 
-def compute_loss(x, model, beta=1.0):
+def compute_loss(x, y, model, beta=1.0):
     bits_per_dim, logits_tensor = torch.zeros(
         1).to(x), torch.zeros(n_classes).to(x)
     logpz, delta_logp = torch.zeros(1).to(x), torch.zeros(1).to(x)
@@ -649,15 +647,15 @@ def compute_loss(x, model, beta=1.0):
 
     if args.squeeze_first:
         x = squeeze_layer(x)
+    x = utils.append_cms(x, y)
 
     if args.task == 'hybrid':
-        z_logp, logits_tensor = model(
-            x.view(-1, *input_size[1:]), 0, classify=True)
+        z_logp, logits_tensor = model(x, 0, classify=True)
         z, delta_logp = z_logp
     elif args.task == 'density':
-        z, delta_logp = model(x.view(-1, *input_size[1:]), 0)
+        z, delta_logp = model(x, 0)
     elif args.task == 'classification':
-        z, logits_tensor = model(x.view(-1, *input_size[1:]), classify=True)
+        z, logits_tensor = model(x, classify=True)
 
     if args.task in ['density', 'hybrid']:
         # log p(z)
@@ -746,10 +744,11 @@ def train(epoch, model, trn_loader):
         #   maximize log p(x) = log p(z) - log |det df/dx|
 
         x = x.to(device)
-
+        y = y.to(device)
         beta = beta = min(1, global_itr /
                           args.annealing_iters) if args.annealing_iters > 0 else 1.
-        bpd, logits, logpz, neg_delta_logp = compute_loss(x, model, beta=beta)
+        bpd, logits, logpz, neg_delta_logp = compute_loss(
+            x, y, model, beta=beta)
 
         if args.task in ['density', 'hybrid']:
             firmom, secmom = estimator_moments(model)
@@ -761,7 +760,6 @@ def train(epoch, model, trn_loader):
             secmom_meter.update(secmom)
 
         if args.task in ['classification', 'hybrid']:
-            y = y.to(device)
             crossent = criterion(logits, y)
             ce_meter.update(crossent.item())
 
@@ -830,7 +828,7 @@ def train(epoch, model, trn_loader):
 
             logger.info(s)
         if i % args.vis_freq == 0:
-            visualize(epoch, model, i, x)
+            visualize(epoch, model, i, x, y)
 
         del x
         torch.cuda.empty_cache()
@@ -858,11 +856,11 @@ def validate(epoch, model, dat_loader, phase, ema=None):
     with torch.no_grad():
         for i, (x, y) in enumerate(tqdm(dat_loader)):
             x = x.to(device)
-            bpd, logits, _, _ = compute_loss(x, model)
+            y = y.to(device)
+            bpd, logits, _, _ = compute_loss(x, y, model)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                y = y.to(device)
                 loss = criterion(logits, y)
                 ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)
@@ -881,7 +879,7 @@ def validate(epoch, model, dat_loader, phase, ema=None):
     return bpd_meter.avg
 
 
-def visualize(epoch, model, itr, real_imgs):
+def visualize(epoch, model, itr, real_imgs, y):
     model.eval()
     utils.makedirs(os.path.join(args.save, 'imgs'))
     real_imgs = real_imgs[:32]
@@ -899,14 +897,19 @@ def visualize(epoch, model, itr, real_imgs):
         real_imgs, _ = add_padding(real_imgs, nvals)
         if args.squeeze_first:
             real_imgs = squeeze_layer(real_imgs)
-        recon_imgs = model(model(
-            real_imgs.view(-1, *input_size[1:])), inverse=True).view(-1, *input_size[1:])
+        real_imgs = utils.append_cms(real_imgs, y, n_classes)
+
+        recon_imgs = model(
+            model(real_imgs), inverse=True).view(-1, *input_size[1:])
+        recon_imgs = recon_imgs[:, :-1]
         if args.squeeze_first:
             recon_imgs = squeeze_layer.inverse(recon_imgs)
         recon_imgs = remove_padding(recon_imgs)
 
         # random samples
+        fixed_z = standard_normal_sample(real_imgs.shape).to(real_imgs)
         fake_imgs = model(fixed_z, inverse=True).view(-1, *input_size[1:])
+        fake_imgs = fake_imgs[:, :-1]
         if args.squeeze_first:
             fake_imgs = squeeze_layer.inverse(fake_imgs)
         fake_imgs = remove_padding(fake_imgs)

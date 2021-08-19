@@ -53,7 +53,7 @@ class ResidualFlow(nn.Module):
         n_classes=10,
         block_type='resblock',
         classifier='resnet',
-        chn_dim = 3
+        chn_dim=3
     ):
         super(ResidualFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -238,7 +238,7 @@ class ResidualFlow(nn.Module):
             return self.inverse(x, logpx)
         out = []
         if classify:
-            logits = self.classifier(torch.pixel_shuffle(x, 2))
+            logits = self.classifier(torch.pixel_shuffle(x[:, :-1], 2))
         for idx in range(len(self.transforms)):
             if logpx is not None:
                 x, logpx = self.transforms[idx].forward(
