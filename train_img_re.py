@@ -647,7 +647,7 @@ def compute_loss(x, y, model, beta=1.0):
 
     if args.squeeze_first:
         x = squeeze_layer(x)
-    x = utils.append_cms(x, y)
+    x = utils.append_cms(x, y, n_classes)
 
     if args.task == 'hybrid':
         z_logp, logits_tensor = model(x, 0, classify=True)
