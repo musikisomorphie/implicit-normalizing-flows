@@ -188,7 +188,7 @@ class ExponentialMovingAverage(object):
 def append_cms(x, y, n_class):
     # print(x.shape, y.shape)
     x_append = y.view(y.shape[0], 1, 1, 1) * torch.ones(
-        (x.shape[0], 1, x.shape[2], x.shape[3])) / n_class
+        (x.shape[0], 1, x.shape[2], x.shape[3])).to(x) / n_class
     return torch.cat((x, x_append), dim=1)
 
 
