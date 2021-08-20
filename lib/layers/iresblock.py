@@ -67,7 +67,7 @@ class iResBlock(nn.Module):
         else:
             return x, logpy + self._logdetgrad(x)[1]
 
-    def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5, threshold=100):
+    def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5, threshold=1000):
         x, x_prev = y - self.nnet(y), y
         i = 0
         tol = atol + y.abs() * rtol

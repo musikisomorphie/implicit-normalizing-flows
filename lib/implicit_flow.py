@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import lib.utils as utils
+import train_utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
 
@@ -53,11 +53,13 @@ class ImplicitFlow(nn.Module):
         classification=False,
         classification_hdim=64,
         n_classes=10,
+        block_type='imblock',
         classifier='resnet',
-        chn_dim = 3
+        scale_factor=4
     ):
         super(ImplicitFlow, self).__init__()
-        self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
+        self.n_scale = min(len(n_blocks), self._calc_n_scale(
+            input_size, scale_factor))
         self.n_blocks = n_blocks
         self.intermediate_dim = intermediate_dim
         self.factor_out = factor_out
@@ -89,27 +91,36 @@ class ImplicitFlow(nn.Module):
         self.classification = classification
         self.classification_hdim = classification_hdim
         self.n_classes = n_classes
+        self.block_type = block_type
         self.model_name = classifier
-        self.chn_dim = chn_dim
+        self.scale_factor = scale_factor
 
         if not self.n_scale > 0:
             raise ValueError(
                 'Could not compute number of scales for input of' 'size (%d,%d,%d,%d)' % input_size)
 
-        self.transforms = self._build_net(input_size)
+        self.trans_size = (input_size[0],
+                           input_size[1] * (scale_factor**2) + 1,
+                           input_size[2] // scale_factor,
+                           input_size[3] // scale_factor)
 
-        self.dims = [o[1:] for o in self.calc_output_size(input_size)]
+        self.transforms = self._build_net(self.trans_size)
+
+        self.dims = [o[1:] for o in self.calc_output_size(self.trans_size)]
 
         if self.classification:
-            self.build_classifier()
-            # self.build_multiscale_classifier(input_size)
+            class_chn = input_size[1] * (scale_factor**2) // 4
+            self.build_classifier(class_chn)
+
+        self.fixed_z = utils.standard_normal_sample(self.trans_size)
 
     def _build_net(self, input_size):
         _, c, h, w = input_size
         transforms = []
+        _stacked_blocks = StackedImplicitBlocks
         for i in range(self.n_scale):
             transforms.append(
-                StackedImplicitBlocks(
+                _stacked_blocks(
                     initial_size=(c, h, w),
                     idim=self.intermediate_dim,
                     squeeze=(i < self.n_scale - 1),  # don't squeeze last layer
@@ -144,8 +155,10 @@ class ImplicitFlow(nn.Module):
             c, h, w = c * 2 if self.factor_out else c * 4, h // 2, w // 2
         return nn.ModuleList(transforms)
 
-    def _calc_n_scale(self, input_size):
+    def _calc_n_scale(self, input_size, scale_factor):
         _, _, h, w = input_size
+        h //= scale_factor
+        w //= scale_factor
         n_scale = 0
         while h >= 4 and w >= 4:
             n_scale += 1
@@ -169,75 +182,36 @@ class ImplicitFlow(nn.Module):
                 output_sizes.append((n, c, h, w))
         return tuple(output_sizes)
 
-    def build_multiscale_classifier(self, input_size):
-        n, c, h, w = input_size
-        hidden_shapes = []
-        for i in range(self.n_scale):
-            if i < self.n_scale - 1:
-                c *= 2 if self.factor_out else 4
-                h //= 2
-                w //= 2
-            hidden_shapes.append((n, c, h, w))
-
-        classification_heads = []
-        for i, hshape in enumerate(hidden_shapes):
-            classification_heads.append(
-                nn.Sequential(
-                    nn.Conv2d(hshape[1], self.classification_hdim, 3, 1, 1),
-                    layers.ActNorm2d(self.classification_hdim),
-                    nn.ReLU(inplace=True),
-                    nn.AdaptiveAvgPool2d((1, 1)),
-                )
-            )
-        self.classification_heads = nn.ModuleList(classification_heads)
-        self.logit_layer = nn.Linear(
-            self.classification_hdim * len(classification_heads), self.n_classes)
-
-    def build_classifier(self):
+    def build_classifier(self, chn_dim):
         self.classifier = utils.initialize_model(self.model_name,
                                                  self.n_classes,
-                                                 self.chn_dim)
+                                                 chn_dim)
 
-    def forward1(self, x, logpx=None, inverse=False, classify=False, restore=False):
+    def forward(self, input, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
-            return self.inverse(x, logpx)
-        out = []
-        if classify:
-            class_outs = []
-        for idx in range(len(self.transforms)):
-            if logpx is not None:
-                x, logpx = self.transforms[idx].forward(
-                    x, logpx, restore=restore)
+            # should check the input type
+            # not sure what is the best practice
+            if input:
+                fixed_z = self.fixed_z
             else:
-                x = self.transforms[idx].forward(x, restore=restore)
-            if self.factor_out and (idx < len(self.transforms) - 1):
-                d = x.size(1) // 2
-                x, f = x[:, :d], x[:, d:]
-                out.append(f)
+                fixed_z = utils.standard_normal_sample(self.trans_size)
 
-            # Handle classification.
-            if classify:
-                if self.factor_out:
-                    class_outs.append(self.classification_heads[idx](f))
-                else:
-                    class_outs.append(self.classification_heads[idx](x))
+            out = self.inverse(fixed_z.to(input), None)
+            out = torch.pixel_shuffle(out[:, :-1], self.scale_factor)
+            return out
 
-        out.append(x)
-        out = torch.cat([o.view(o.size()[0], -1) for o in out], 1)
-        output = out if logpx is None else (out, logpx)
+        assert isinstance(input, (list, tuple)) and len(input) == 2
+        x, y = input
+        x = torch.pixel_unshuffle(x, self.scale_factor)
+        y = y.view(y.shape[0], 1, 1, 1) * torch.ones(
+            (x.shape[0], 1, x.shape[2], x.shape[3])).to(x) / self.n_classes
+        x = torch.cat((x, y), dim=1)
+
         if classify:
-            h = torch.cat(class_outs, dim=1).squeeze(-1).squeeze(-1)
-            logits = self.logit_layer(h)
-            return output, logits
-        else:
-            return output
+            logits = self.classifier(
+                torch.pixel_shuffle(x[:, :-1], 2))
 
-    def forward(self, x, logpx=None, inverse=False, classify=False, restore=False):
-        if inverse:
-            return self.inverse(x, logpx)
         out = []
-        if classify:
-            logits = self.classifier(x)
         for idx in range(len(self.transforms)):
             if logpx is not None:
                 x, logpx = self.transforms[idx].forward(

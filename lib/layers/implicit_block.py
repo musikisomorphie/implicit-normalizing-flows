@@ -14,7 +14,7 @@ logger = logging.getLogger()
 __all__ = ['imBlock']
 
 
-def find_fixed_point(g, y, threshold=100, eps=1e-5):
+def find_fixed_point(g, y, threshold=1000, eps=1e-5):
     x, x_prev = g(y), y
     i = 0
     tol = eps + eps * y.abs()
