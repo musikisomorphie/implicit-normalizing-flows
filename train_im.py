@@ -154,13 +154,11 @@ ce_meter = utils.RunningAverageMeter(0.97)
 
 def compute_loss(x, y,
                  model,
-                 n_classes,
-                 input_size,
                  beta=1.0,
                  nvals=256):
 
-    bits_per_dim, logits_tensor = torch.zeros(
-        1).to(x), torch.zeros(n_classes).to(x)
+    bits_per_dim = torch.zeros(1).to(x)
+    logits_tensor = None
     logpz, delta_logp = torch.zeros(1).to(x), torch.zeros(1).to(x)
 
     if args.task == 'hybrid':
@@ -176,13 +174,11 @@ def compute_loss(x, y,
         logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
 
         # log p(x)
-        # here, the input_size is slightly different to
-        # the real input_size as this does not count the label size
         logpx = logpz - beta * delta_logp - \
-            np.log(nvals) * np.prod(input_size[1:])
+            np.log(nvals) * np.prod(z.shape[1:])
 
         bits_per_dim = - torch.mean(logpx) / \
-            np.prod(input_size[1:]) / np.log(2)
+            np.prod(z.shape[1:]) / np.log(2)
 
         logpz = torch.mean(logpz).detach()
 
