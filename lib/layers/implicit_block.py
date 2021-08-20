@@ -23,7 +23,8 @@ def find_fixed_point(g, y, threshold=1000, eps=1e-5):
         i += 1
         if i > threshold:
             logger.info(torch.abs(x - x_prev).max())
-            logger.info('Iterations exceeded {} for fixed point.'.format(threshold))
+            logger.info(
+                'Iterations exceeded {} for fixed point.'.format(threshold))
             break
     return x
 
@@ -173,9 +174,9 @@ class imBlock(nn.Module):
         A 'dummy' function that does nothing in the forward pass and perform implicit differentiation
         in the backward pass. Essentially a wrapper that provides backprop for the `imBlock` class.
         You should use this inner class in imBlock's forward() function by calling:
-        
+
             self.Backward.apply(self.func, ...)
-            
+
         """
         @staticmethod
         def forward(ctx, nnet_z, nnet_x, z, x, *args):
@@ -234,7 +235,7 @@ class imBlock(nn.Module):
                            'broyden', self.eps_forward, self.threshold)
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
             z0  # For backwarding to parameters in func
-        
+
         # nn.Parameter of Swish (self.beta), ActNormNd (self.weight, self.bias)
         # are not saved during parallel training
         # should ignore load the related states
@@ -244,8 +245,8 @@ class imBlock(nn.Module):
         for state_id, state in self.nnet_z.state_dict().items():
             self.nnet_z_copy.state_dict()[state_id].copy_(state)
 
-        # self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
-        # self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
+        self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
+        self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
         z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,
                                 z, x, 'broyden', self.eps_backward, self.threshold)
         if logpx is None:
