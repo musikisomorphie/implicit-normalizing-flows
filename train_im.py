@@ -139,7 +139,7 @@ parser.add_argument(
     '--print-freq', help='Print progress every so iterations', type=int, default=20)
 parser.add_argument(
     '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
-# parser = deepspeed.add_config_arguments(parser)
+parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
 batch_time = utils.RunningAverageMeter(0.97)
@@ -403,8 +403,7 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    # device = torch.device(args.local_rank)
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(args.local_rank)
     torch.backends.cudnn.benchmark = True
 
     if device.type == 'cuda':
@@ -424,13 +423,11 @@ def main(args):
     logger.info('Creating model.')
     model = utils.model_prep(args, 'imflow', input_size, n_classes)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    model = utils.parallelize(model.to(device))
-    # # parameters = filter(lambda p: p.requires_grad, model.parameters())
-    # parameters = model.parameters()
-    # model, optimizer, _, __ = deepspeed.initialize(args=args,
-    #                                                model=model,
-    #                                                model_parameters=parameters,
-    #                                                optimizer=optimizer)
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model, optimizer, _, __ = deepspeed.initialize(args=args,
+                                                   model=model,
+                                                   model_parameters=parameters,
+                                                   optimizer=optimizer)
 
     scheduler = None
     if args.scheduler:

@@ -140,12 +140,12 @@ class imBlock(nn.Module):
 
         self.nnet_x = nnet_x
         self.nnet_z = nnet_z
-        self.nnet_x_copy = copy.deepcopy(self.nnet_x)
-        self.nnet_z_copy = copy.deepcopy(self.nnet_z)
-        for params in self.nnet_x_copy.parameters():
-            params.requires_grad_(False)
-        for params in self.nnet_z_copy.parameters():
-            params.requires_grad_(False)
+        # self.nnet_x_copy = copy.deepcopy(self.nnet_x)
+        # self.nnet_z_copy = copy.deepcopy(self.nnet_z)
+        # for params in self.nnet_x_copy.parameters():
+        #     params.requires_grad_(False)
+        # for params in self.nnet_z_copy.parameters():
+        #     params.requires_grad_(False)
 
         self.n_dist = n_dist
         self.geom_p = nn.Parameter(torch.tensor(
@@ -229,8 +229,8 @@ class imBlock(nn.Module):
         z0 = x.clone().detach()
         if restore:
             with torch.no_grad():
-                _ = self.nnet_x_copy(z0)
-                _ = self.nnet_z_copy(z0)
+                _ = self.nnet_x(z0)
+                _ = self.nnet_z(z0)
         z = RootFind.apply(self.nnet_z, self.nnet_x, z0, z0,
                            'broyden', self.eps_forward, self.threshold)
         z = RootFind.f(self.nnet_z, self.nnet_x, z.detach(), z0) + \
@@ -239,15 +239,15 @@ class imBlock(nn.Module):
         # nn.Parameter of Swish (self.beta), ActNormNd (self.weight, self.bias)
         # are not saved during parallel training
         # should ignore load the related states
-        for state_id, state in self.nnet_x.state_dict().items():
-            self.nnet_x_copy.state_dict()[state_id].copy_(state)
+        # for state_id, state in self.nnet_x.state_dict().items():
+        #     self.nnet_x_copy.state_dict()[state_id].copy_(state)
 
-        for state_id, state in self.nnet_z.state_dict().items():
-            self.nnet_z_copy.state_dict()[state_id].copy_(state)
+        # for state_id, state in self.nnet_z.state_dict().items():
+        #     self.nnet_z_copy.state_dict()[state_id].copy_(state)
 
-        self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
-        self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
-        z = self.Backward.apply(self.nnet_z_copy, self.nnet_x_copy,
+        # self.nnet_x_copy.load_state_dict(self.nnet_x.state_dict())
+        # self.nnet_z_copy.load_state_dict(self.nnet_z.state_dict())
+        z = self.Backward.apply(self.nnet_z, self.nnet_x,
                                 z, x, 'broyden', self.eps_backward, self.threshold)
         if logpx is None:
             return z
