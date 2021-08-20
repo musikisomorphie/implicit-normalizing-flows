@@ -112,7 +112,8 @@ class ImplicitFlow(nn.Module):
             class_chn = input_size[1] * (scale_factor**2) // 4
             self.build_classifier(class_chn)
 
-        self.fixed_z = utils.standard_normal_sample(self.trans_size)
+        self.fixed_z = utils.standard_normal_sample([input_size[0] * 2,
+                                                     *self.trans_size[1:]])
 
     def _build_net(self, input_size):
         _, c, h, w = input_size
@@ -190,7 +191,7 @@ class ImplicitFlow(nn.Module):
     def forward(self, input, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
             assert torch.is_tensor(input)
-            if input.shape == self.fixed_z.shape:
+            if input.shape[1:] == self.fixed_z.shape[1:]:
                 fixed_z = input
             else:
                 if torch.all(input):
