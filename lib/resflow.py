@@ -189,12 +189,14 @@ class ResidualFlow(nn.Module):
 
     def forward(self, input, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
-            # should check the input type
-            # not sure what is the best practice 
-            if input:
-                fixed_z = self.fixed_z
+            assert torch.is_tensor(input)
+            if input.shape == self.fixed_z.shape:
+                fixed_z = input
             else:
-                fixed_z = utils.standard_normal_sample(self.trans_size)
+                if torch.all(input == True):
+                    fixed_z = self.fixed_z
+                else:
+                    fixed_z = utils.standard_normal_sample(self.trans_size)
 
             out = self.inverse(fixed_z.to(input), None)
             out = torch.pixel_shuffle(out[:, :-1], self.scale_factor)
