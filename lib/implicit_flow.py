@@ -331,7 +331,7 @@ class StackedImplicitBlocks(layers.SequentialFlow):
                 return layers.InvertibleConv2d(initial_size[0])
 
         def _lipschitz_layer(fc):
-            return base_layers.get_conv2d if fc else base_layers.get_conv2d
+            return base_layers.get_linear if fc else base_layers.get_conv2d
 
         def _resblock(initial_size, fc, idim=idim, first_resblock=True):
             if fc:
