@@ -377,6 +377,7 @@ def visualize(epoch, model, itr, real_imgs, real_labs, img_path, nvals=256):
         fake_imgs = model(torch.Tensor([False]).to(real_imgs), inverse=True)
 
         imgs = torch.cat([_real_imgs, fake_imgs, recon_imgs], 0)
+        print('visualize', imgs.shape)
 
         filename = pathlib.Path(img_path) / \
             'e{:03d}_i{:06d}.png'.format(epoch, itr)
