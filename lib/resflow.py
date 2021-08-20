@@ -191,6 +191,7 @@ class ResidualFlow(nn.Module):
         if inverse:
             assert torch.is_tensor(input)
             if input.shape == self.fixed_z.shape:
+                print(input.shape, self.fixed_z.shape)
                 fixed_z = input
             else:
                 if torch.all(input):
