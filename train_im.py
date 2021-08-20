@@ -421,7 +421,7 @@ def main(args):
     logger.info('Creating model.')
     model = utils.model_prep(args, 'imflow', input_size, n_classes)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    # parameters = filter(lambda p: p.requires_grad, model.parameters())
     model, optimizer, _, __ = deepspeed.initialize(args=args,
                                                    model=model,
                                                    model_parameters=parameters,
