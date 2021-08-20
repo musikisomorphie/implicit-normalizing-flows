@@ -189,12 +189,12 @@ class ResidualFlow(nn.Module):
 
     def forward(self, input, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
-            print(input.shape)
             assert torch.is_tensor(input)
-            if input.shape[1:] == self.fixed_z.shape[1:]:
-                fixed_z = input
+            if len(input.shape) > 1:
+                fixed_z = input.view(-1, *self.trans_size[1:])
             else:
-                if torch.all(input):
+                assert input.shape[0] == 1
+                if input:
                     fixed_z = self.fixed_z
                 else:
                     fixed_z = utils.standard_normal_sample(self.trans_size)
