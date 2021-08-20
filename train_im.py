@@ -96,7 +96,7 @@ parser.add_argument('--quadratic', type=eval,
 parser.add_argument('--fc-end', type=eval, choices=[True, False], default=True)
 parser.add_argument('--fc-idim', type=int, default=128)
 parser.add_argument('--preact', type=eval,
-                    choices=[True, False], default=False)
+                    choices=[True, False], default=True)
 parser.add_argument('--padding', type=int, default=0)
 parser.add_argument('--first-resblock', type=eval,
                     choices=[True, False], default=True)

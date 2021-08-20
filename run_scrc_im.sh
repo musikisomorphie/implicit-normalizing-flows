@@ -1,5 +1,8 @@
-CUDA_VISIBLE_DEVICES=0,1,2,3 deepspeed train_img_im.py --cuda  --data scrc --deepspeed_config config_im.json \
+deepspeed --include=localhost:0,1,2,3 --master_port 50123 train_im.py --cuda  --data scrc --deepspeed_config config_im.json \
     --actnorm True --task hybrid --nworkers 2 \
-    --nblocks 4-4-4 --idim '512' --act 'swish' --kernels '3-1-3' --vnorms '2222' --fc-end False --preact True \
-    --save 'experiments/scrc_im' --imagesize 128 --coeff 0.9 --n-exact-terms 10 \
-    --dataroot /raid/jiqing/Data/SCRC --batchsize 12 --val-batchsize 16 --nepochs 100
+    --nblocks 10-10-10 --print-freq 120 --factor-out True --squeeze-first True \  
+    --save 'experiments/scrc_im_alpha/' --imagesize 256 \
+    --dataroot /raid/jiqing/Data/SCRC/ --batchsize 16 --val-batchsize 32 --nepochs 100 \
+    --env '201' --aug 'rr' --inp 'i' \
+    --idim '512' --act 'swish' --kernels '3-1-3' --vnorms '2222' --fc-end False --coeff 0.9 --n-exact-terms 10 \
+

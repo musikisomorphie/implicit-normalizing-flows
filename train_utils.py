@@ -1,29 +1,19 @@
-import argparse
-import time
 import math
-import os
-import os.path
 import numpy as np
-import gc
 import pathlib
 import logging
 import torch
 import torchvision.transforms as transforms
 import torch.nn as nn
-from torchvision.utils import save_image
 from torchvision import models
 from skimage import color
 from numbers import Number
-from tqdm import tqdm
 
 from lib.implicit_flow import ImplicitFlow
 from lib.resflow import ResidualFlow
 import lib.datasets as datasets
-import lib.optimizers as optim
-import lib.utils as utils
 import lib.layers as layers
 import lib.layers.base as base_layers
-from lib.lr_scheduler import CosineAnnealingWarmRestarts
 
 
 class RunningAverageMeter(object):
@@ -210,6 +200,18 @@ def get_logger(logpath, filepath, package_files=[], displaying=True, saving=True
             logger.info(package_f.read())
 
     return logger
+
+
+def get_lipschitz_constants(model):
+    lipschitz_constants = []
+    for m in model.modules():
+        if isinstance(m, base_layers.SpectralNormConv2d) or isinstance(m, base_layers.SpectralNormLinear):
+            lipschitz_constants.append(m.scale)
+        if isinstance(m, base_layers.InducedNormConv2d) or isinstance(m, base_layers.InducedNormLinear):
+            lipschitz_constants.append(m.scale)
+        if isinstance(m, base_layers.LopConv2d) or isinstance(m, base_layers.LopLinear):
+            lipschitz_constants.append(m.scale)
+    return lipschitz_constants
 
 
 def update_lipschitz(model):
