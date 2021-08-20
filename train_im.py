@@ -381,7 +381,7 @@ def visualize(epoch, model, itr, real_imgs, real_labs, img_path, nvals=256):
         filename = pathlib.Path(img_path) / \
             'e{:03d}_i{:06d}.png'.format(epoch, itr)
         tv_utils.save_image(imgs.cpu().float(), str(
-            filename), nrow=16, padding=2)
+            filename))
     model.train()
 
 
