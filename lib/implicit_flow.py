@@ -193,7 +193,7 @@ class ImplicitFlow(nn.Module):
             if input.shape == self.fixed_z.shape:
                 fixed_z = input
             else:
-                if torch.all(input == True):
+                if torch.all(input):
                     fixed_z = self.fixed_z
                 else:
                     fixed_z = utils.standard_normal_sample(self.trans_size)
