@@ -67,7 +67,7 @@ class iResBlock(nn.Module):
         else:
             return x, logpy + self._logdetgrad(x)[1]
 
-    def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5, threshold=1000):
+    def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5, threshold=100):
         x, x_prev = y - self.nnet(y), y
         i = 0
         tol = atol + y.abs() * rtol
@@ -75,7 +75,8 @@ class iResBlock(nn.Module):
             x, x_prev = y - self.nnet(x), x
             i += 1
             if i > threshold:
-                logger.info('Iterations exceeded {} for inverse.'.format(threshold))
+                logger.info(
+                    'Iterations exceeded {} for inverse.'.format(threshold))
                 break
         return x
 
