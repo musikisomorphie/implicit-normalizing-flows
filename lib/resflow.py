@@ -100,7 +100,8 @@ class ResidualFlow(nn.Module):
         if self.classification:
             self.classifier = classifier
 
-        self.fixed_z = utils.standard_normal_sample(input_size)
+        self.fixed_z = utils.standard_normal_sample(
+            [input_size[0] * 2, *input_size[1:]])
 
     def _build_net(self, input_size):
         _, c, h, w = input_size
@@ -177,7 +178,13 @@ class ResidualFlow(nn.Module):
         if inverse:
             assert torch.is_tensor(x)
             if len(x.shape) == 1:
-                x = self.fixed_z.to(x)
+                print('fake shape', x.shape)
+                x = self.fixed_z[:x.shape[0]].to(x)
+            elif x.shape[1] < self.fixed_z.shape[1]:
+                print('nucl shape', x.shape, self.fixed_z.shape)
+                assert self.fixed_z.shape[0] >= x.shape[0]
+                x = torch.cat((self.fixed_z[:x.shape[0], :-x.shape[1]].to(x),
+                               x), dim=1)
             #     fixed_z = input.view(-1, *self.trans_size[1:])
             # else:
             #     assert input.shape[0] == 1

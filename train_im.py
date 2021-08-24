@@ -379,20 +379,23 @@ def validate(args,
 
 def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, phase='trn'):
     model.eval()
-    real_imgs = real_imgs[:32]
+    real_imgs = real_imgs[:16]
 
     with torch.no_grad():
         # reconstructed real images
-        recon_imgs = model(model(real_imgs), inverse=True)
+        recon_z = model(real_imgs).view(real_imgs.shape)
+        recon_imgs = model(recon_z, inverse=True)
 
         # random samples
-        fake_imgs = model(torch.Tensor([True]).to(real_imgs), inverse=True)
+        nucl_imgs = model(recon_z[:, -(scale_factor**2):], inverse=True)
+        fake_imgs = model(torch.ones(
+            [real_imgs.shape[0]]).to(real_imgs), inverse=True)
 
         print('label diff {:4f}'.format(
             torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
         print('mask diff {:4f}'.format(
             torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
-        imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
+        imgs = torch.cat([real_imgs, nucl_imgs, fake_imgs, recon_imgs], 0)
         imgs = torch.pixel_shuffle(imgs[:, 1:], scale_factor)
         imgs = imgs[:, :3]
 
