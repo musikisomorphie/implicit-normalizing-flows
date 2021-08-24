@@ -1,5 +1,8 @@
-CUDA_VISIBLE_DEVICES=0,1 deepspeed train_img_im.py --cuda  --data scrc --deepspeed_config config_im.json \
-    --actnorm True --task hybrid \
-    --nblocks 1-1-1 --idim '512' --act 'swish' --kernels '3-1-3' --vnorms '2222' --fc-end False --preact True \
-    --save 'experiments/scrc_im' --imagesize 64 --coeff 0.9 --n-exact-terms 10 \
-    --dataroot /home/miashan/Data/SCRC --batchsize 8 --val-batchsize 8 --nepochs 100
+deepspeed --include=localhost:0 --master_port 50123 train_im.py --cuda  --data scrc --deepspeed_config config_im.json \
+    --actnorm True --task hybrid --nworkers 2 \
+    --nblocks 2-2-2 --print-freq 120 --factor-out True --squeeze-first True \
+    --save 'experiments/scrc_im_alpha/' --imagesize 128 \
+    --dataroot /home/histopath/Data/SCRC_nuclei/ --batchsize 2 --val-batchsize 4 --nepochs 100 \
+    --env '201' --aug 'rr' --inp 'im' --scale-factor 2 --flow imflow \
+    --idim '512' --act 'swish' --kernels '3-1-3' --vnorms '2222' --fc-end False --fc False --coeff 0.9 --n-exact-terms 10 \
+

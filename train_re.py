@@ -25,12 +25,16 @@ parser.add_argument('--local_rank',
                     default=-1,
                     help='local rank passed from distributed launcher')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
+
+parser.add_argument('--flow', type=str, default='reflow',
+                    choices=['reflow', 'imflow'])
+parser.add_argument('--scale-factor', type=int)
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--aug', type=str,
                     choices=['r', 'rr'])
 parser.add_argument('--inp', type=str,
-                    choices=['i', 'im', 'm'])
+                    choices=['im'])
 parser.add_argument('--oup', type=str,
                     choices=['cms'], default='cms')
 
@@ -152,22 +156,21 @@ gnorm_meter = utils.RunningAverageMeter(0.97)
 ce_meter = utils.RunningAverageMeter(0.97)
 
 
-def compute_loss(x, y,
+def compute_loss(x,
                  model,
                  beta=1.0,
                  nvals=256):
-
     bits_per_dim = torch.zeros(1).to(x)
     logits_tensor = None
     logpz, delta_logp = torch.zeros(1).to(x), torch.zeros(1).to(x)
 
     if args.task == 'hybrid':
-        z_logp, logits_tensor = model((x, y), 0, classify=True)
+        z_logp, logits_tensor = model(x, 0, classify=True)
         z, delta_logp = z_logp
     elif args.task == 'density':
-        z, delta_logp = model((x, y), 0)
+        z, delta_logp = model(x, 0)
     elif args.task == 'classification':
-        z, logits_tensor = model((x, y), classify=True)
+        z, logits_tensor = model(x, classify=True)
 
     if args.task in ['density', 'hybrid']:
         # log p(z)
@@ -228,7 +231,7 @@ def train(args,
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
         bpd, logits, logpz, neg_delta_logp = compute_loss(
-            x, y, model, beta=beta)
+            x, model, beta=beta)
 
         if args.task in ['density', 'hybrid']:
             firmom, secmom = utils.estimator_moments(model)
@@ -305,7 +308,10 @@ def train(args,
 
             logger.info(s)
         if i % args.vis_freq == 0:
-            visualize(epoch, model, i, x, y, args.save / 'imgs')
+            visualize(epoch, model, i, x,
+                      args.save / 'imgs',
+                      args.scale_factor,
+                      phase='trn')
 
         del x
         torch.cuda.empty_cache()
@@ -342,7 +348,7 @@ def validate(args,
         for i, (x, y) in enumerate(tqdm(dat_loader)):
             x = x.to(device)
             y = y.to(device)
-            bpd, logits, _, _ = compute_loss(x, y, model)
+            bpd, logits, _, _ = compute_loss(x, model)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
@@ -351,6 +357,13 @@ def validate(args,
                 _, predicted = logits.max(1)
                 total += y.size(0)
                 correct += predicted.eq(y).sum().item()
+
+            if i % args.vis_freq == 0:
+                visualize(epoch, model, i, x,
+                          args.save / 'imgs',
+                          args.scale_factor,
+                          phase='val')
+
     val_time = time.time() - start
 
     if ema is not None:
@@ -364,25 +377,27 @@ def validate(args,
     return bpd_meter.avg
 
 
-def visualize(epoch, model, itr, real_imgs, real_labs, img_path, nvals=256):
+def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, phase='trn'):
     model.eval()
     real_imgs = real_imgs[:32]
-    _real_imgs = real_imgs
 
     with torch.no_grad():
         # reconstructed real images
-        recon_imgs = model(model((real_imgs, real_labs)), inverse=True)
+        recon_imgs = model(model(real_imgs), inverse=True)
 
         # random samples
-        fake_imgs = model(torch.Tensor([False]).to(real_imgs), inverse=True)
+        fake_imgs = model(torch.Tensor([True]).to(real_imgs), inverse=True)
 
-        imgs = torch.cat([_real_imgs, fake_imgs, recon_imgs], 0)
+        print('label diff {:4f}'.format(
+            torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
+        print('mask diff {:4f}'.format(
+            torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
+        imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
+        imgs = torch.pixel_shuffle(imgs[:, 1:], scale_factor)
         imgs = imgs[:, :3]
-        # print('visualize', imgs.shape, _real_imgs.shape,
-        #       fake_imgs.shape, recon_imgs.shape)
 
         filename = pathlib.Path(img_path) / \
-            'e{:03d}_i{:06d}.png'.format(epoch, itr)
+            'e{:03d}_i{:06d}_{}.png'.format(epoch, itr, phase)
         tv_utils.save_image(imgs.cpu().float(), str(
             filename), nrow=16, padding=2)
     model.train()
@@ -422,7 +437,8 @@ def main(args):
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
-    model = utils.model_prep(args, 'reflow', input_size, n_classes)
+    classifier = utils.InferNet(args.classifier, n_classes, input_size[1] - 1)
+    model = utils.model_prep(args, input_size, classifier)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     model, optimizer, _, __ = deepspeed.initialize(args=args,

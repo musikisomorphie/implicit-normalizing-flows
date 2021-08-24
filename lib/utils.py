@@ -434,10 +434,25 @@ def creat_mock_data(data_path,
         print('data {} generation complete.'.format(str(save_pt)))
 
 
+def cms_cell_stat(data_path):
+    for i, tum in enumerate(('front', 'micro', 'center')):
+        cms_data = pathlib.Path(data_path) / \
+            'scrc_symm_{}.pt'.format(i)
+        ims, labs = torch.load(str(cms_data))
+        ims = ims[:, 4]
+        print('Tumor {}'.format(tum), ims.shape)
+        for j, ntpy in enumerate(('back', 'infl', 'epth', 'misc', 'strm', 'mucn')):
+            nuc = (ims == j).sum(dim=[1, 2]).float().div(160000.)
+            print('{}, mean: {:.4%}, std: {:.4%}'.format(
+                  ntpy, torch.mean(nuc).item(), torch.std(nuc).item()))
+        print('\n')
+
+
 def main():
-    data_path = '/home/miashan/Data/SCRC_nuclei/'
+    data_path = '/home/histopath/Data/SCRC_nuclei/'
     data_size = 1024
-    creat_mock_data(data_path, data_size)
+    # creat_mock_data(data_path, data_size)
+    cms_cell_stat(data_path)
 
 
 if __name__ == '__main__':

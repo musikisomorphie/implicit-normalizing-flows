@@ -110,40 +110,55 @@ class Imagenet64(CustomData):
 
 class SCRC(Dataset):
     def __init__(self,
+                 scale_factor,
+                 n_classes,
                  scrc_path,
                  scrc_idx=None,
                  scrc_in=None,
                  scrc_out=None,
                  transforms=None):
-        self.imgs, self.labs = torch.load(str(scrc_path))
+        self.scale_factor = scale_factor
+        self.n_classes = n_classes
+
+        imgs, labs = torch.load(str(scrc_path))
+        self.n_nuclei = torch.amax(imgs[:, -1])
+        print('nuclei classes {}'.format(self.n_nuclei))
         if scrc_idx is not None:
-            self.imgs = self.imgs[scrc_idx, ]
-            self.labs = self.labs[scrc_idx, ]
+            imgs = imgs[scrc_idx]
+            labs = labs[scrc_idx]
 
+        self._proc_img(imgs, scrc_in)
+        self._proc_lab(labs, scrc_out)
+        assert self.imgs.shape[0] == self.labs.shape[0]
+
+        self.len, self.chn = list(self.imgs.shape[:2])
+        self.transforms = transforms
+
+    def _proc_img(self, imgs, scrc_in=None):
         # for i in range(5):
-        #     print(torch.amin(self.imgs[:, i, :, :]),
-        #           torch.amax(self.imgs[:, i, :, :]))
-        if scrc_in == [4]:
-            self.imgs = self.imgs[:, scrc_in, :, :].float()
-        else:
-            if scrc_in is not None:
-                assert set([0, 1, 2]) <= set(scrc_in)
-                self.imgs = self.imgs[:, scrc_in, :, :].float()
-            else:
-                self.imgs = self.imgs.float()
-        self.imgs = self.imgs.div(255.)
+        #     print(torch.amin(imgs[:, i, :, :]),
+        #           torch.amax(imgs[:, i, :, :]))
 
+        self.imgs = imgs.float()
+        # divide the rgb pixel by 255
+        self.imgs[:, :3] = self.imgs[:, :3].div(255.)
+        # divide the nuclei type by nuclei classes
+        self.imgs[:, -1] = self.imgs[:, -1].div(self.n_nuclei)
+        if scrc_in is not None:
+            self.imgs = self.imgs[:, scrc_in]
+
+    def _proc_lab(self, labs, scrc_out=None):
         if scrc_out is not None:
             if not isinstance(scrc_out, str):
                 raise TypeError('The outcome {} is not a string.'.
                                 format(scrc_out))
             scrc_out = scrc_out.lower()
             if scrc_out == 'os':
-                self.labs = self.labs[:, -8:-6].float()
+                self.labs = labs[:, -8:-6].float()
             elif scrc_out == 'dfs':
-                self.labs = self.labs[:, -6:-4].float()
+                self.labs = labs[:, -6:-4].float()
             elif scrc_out == 'cms':
-                self.labs = self.labs[:, -4:]
+                self.labs = labs[:, -4:]
                 self.labs = torch.argmax(self.labs, dim=1)
                 print(torch.amin(self.labs), torch.amax(
                     self.labs), self.labs.shape)
@@ -151,19 +166,21 @@ class SCRC(Dataset):
                 raise ValueError('The outcome {} is not cms, os or dfs.'.
                                  format(scrc_out))
         else:
-            self.labs = self.labs.float()
-
-        assert self.imgs.shape[0] == self.labs.shape[0]
-        self.len, self.chn = list(self.imgs.shape[:2])
-
-        self.transforms = transforms
+            self.labs = labs.float()
 
     def __getitem__(self, index):
-        img = self.imgs[index, ]
-        lab = self.labs[index, ]
+        img = self.imgs[index]
+        lab = self.labs[index]
+
         if self.transforms is not None:
             img = self.transforms(img)
-        return img, lab
+
+        img_out = torch.pixel_unshuffle(img, self.scale_factor)
+        lab_out = lab.float() * torch.ones((1,
+                                            img_out.shape[1],
+                                            img_out.shape[2])) / self.n_classes
+
+        return torch.cat((lab_out, img_out)), lab.long()
 
     @property
     def ndim(self):

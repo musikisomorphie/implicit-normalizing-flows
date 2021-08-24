@@ -52,14 +52,11 @@ class ResidualFlow(nn.Module):
         learn_p=False,
         classification=False,
         classification_hdim=64,
-        n_classes=10,
         block_type='resblock',
-        classifier='resnet',
-        scale_factor=4
+        classifier=None,
     ):
         super(ResidualFlow, self).__init__()
-        self.n_scale = min(len(n_blocks), self._calc_n_scale(
-            input_size, scale_factor))
+        self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
         self.n_blocks = n_blocks
         self.intermediate_dim = intermediate_dim
         self.factor_out = factor_out
@@ -90,29 +87,20 @@ class ResidualFlow(nn.Module):
         self.learn_p = learn_p
         self.classification = classification
         self.classification_hdim = classification_hdim
-        self.n_classes = n_classes
         self.block_type = block_type
-        self.model_name = classifier
-        self.scale_factor = scale_factor
 
         if not self.n_scale > 0:
             raise ValueError(
                 'Could not compute number of scales for input of' 'size (%d,%d,%d,%d)' % input_size)
 
-        self.trans_size = (input_size[0],
-                           input_size[1] * (scale_factor**2) + 1,
-                           input_size[2] // scale_factor,
-                           input_size[3] // scale_factor)
+        self.transforms = self._build_net(input_size)
 
-        self.transforms = self._build_net(self.trans_size)
-
-        self.dims = [o[1:] for o in self.calc_output_size(self.trans_size)]
+        self.dims = [o[1:] for o in self.calc_output_size(input_size)]
 
         if self.classification:
-            class_chn = input_size[1] * (scale_factor**2) // 4
-            self.build_classifier(class_chn)
+            self.classifier = classifier
 
-        self.fixed_z = utils.standard_normal_sample(self.trans_size)
+        self.fixed_z = utils.standard_normal_sample(input_size)
 
     def _build_net(self, input_size):
         _, c, h, w = input_size
@@ -155,10 +143,8 @@ class ResidualFlow(nn.Module):
             c, h, w = c * 2 if self.factor_out else c * 4, h // 2, w // 2
         return nn.ModuleList(transforms)
 
-    def _calc_n_scale(self, input_size, scale_factor):
+    def _calc_n_scale(self, input_size):
         _, _, h, w = input_size
-        h //= scale_factor
-        w //= scale_factor
         n_scale = 0
         while h >= 4 and w >= 4:
             n_scale += 1
@@ -182,37 +168,31 @@ class ResidualFlow(nn.Module):
                 output_sizes.append((n, c, h, w))
         return tuple(output_sizes)
 
-    def build_classifier(self, chn_dim):
-        self.classifier = utils.initialize_model(self.model_name,
-                                                 self.n_classes,
-                                                 chn_dim)
+    # def build_classifier(self, chn_dim):
+    #     self.classifier = utils.initialize_model(self.model_name,
+    #                                              self.n_classes,
+    #                                              chn_dim)
 
-    def forward(self, input, logpx=None, inverse=False, classify=False, restore=False):
+    def forward(self, x, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
-            assert torch.is_tensor(input)
-            if len(input.shape) > 1:
-                fixed_z = input.view(-1, *self.trans_size[1:])
-            else:
-                assert input.shape[0] == 1
-                if input:
-                    fixed_z = self.fixed_z
-                else:
-                    fixed_z = utils.standard_normal_sample(self.trans_size)
+            assert torch.is_tensor(x)
+            if len(x.shape) == 1:
+                x = self.fixed_z.to(x)
+            #     fixed_z = input.view(-1, *self.trans_size[1:])
+            # else:
+            #     assert input.shape[0] == 1
+            #     if input:
+            #         fixed_z = self.fixed_z
+            #     else:
+            #         fixed_z = utils.standard_normal_sample(self.trans_size)
 
-            out = self.inverse(fixed_z.to(input), None)
-            out = torch.pixel_shuffle(out[:, :-1], self.scale_factor)
-            return out
-
-        assert isinstance(input, (list, tuple)) and len(input) == 2
-        x, y = input
-        x = torch.pixel_unshuffle(x, self.scale_factor)
-        y = y.view(y.shape[0], 1, 1, 1) * torch.ones(
-            (x.shape[0], 1, x.shape[2], x.shape[3])).to(x) / self.n_classes
-        x = torch.cat((x, y), dim=1)
+            # out = self.inverse(self.fixed_z.to(input), None)
+            # out = torch.pixel_shuffle(out[:, :-1], self.scale_factor)
+            # return out
+            return self.inverse(x, None)
 
         if classify:
-            logits = self.classifier(
-                torch.pixel_shuffle(x[:, :-1], 2))
+            logits = self.classifier(x[:, 1:])
 
         out = []
         for idx in range(len(self.transforms)):
@@ -360,52 +340,54 @@ class StackediResBlocks(layers.SequentialFlow):
                     grad_in_forward=grad_in_forward,
                 )
             else:
-                ks = list(map(int, kernels.split('-')))
-                if learn_p:
-                    _domains = [nn.Parameter(torch.tensor(0.))
-                                for _ in range(len(ks))]
-                    _codomains = _domains[1:] + [_domains[0]]
-                else:
-                    _domains = domains
-                    _codomains = codomains
-                nnet = []
-                if not first_resblock and preact:
-                    if batchnorm:
-                        nnet.append(
-                            layers.MovingBatchNorm2d(initial_size[0]))
-                    nnet.append(ACT_FNS[activation_fn](False))
-                nnet.append(
-                    _lipschitz_layer(fc)(
-                        initial_size[0], idim, ks[0], 1, ks[0] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
-                        domain=_domains[0], codomain=_codomains[0], atol=sn_atol, rtol=sn_rtol
-                    )
-                )
-                if batchnorm:
-                    nnet.append(layers.MovingBatchNorm2d(idim))
-                nnet.append(ACT_FNS[activation_fn](True))
-                for i, k in enumerate(ks[1:-1]):
+                def build_nnet():
+                    ks = list(map(int, kernels.split('-')))
+                    if learn_p:
+                        _domains = [nn.Parameter(torch.tensor(0.))
+                                    for _ in range(len(ks))]
+                        _codomains = _domains[1:] + [_domains[0]]
+                    else:
+                        _domains = domains
+                        _codomains = codomains
+                    nnet = []
+                    if not first_resblock and preact:
+                        if batchnorm:
+                            nnet.append(
+                                layers.MovingBatchNorm2d(initial_size[0]))
+                        nnet.append(ACT_FNS[activation_fn](False))
                     nnet.append(
                         _lipschitz_layer(fc)(
-                            idim, idim, k, 1, k // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
-                            domain=_domains[i + 1], codomain=_codomains[i +
-                                                                        1], atol=sn_atol, rtol=sn_rtol
+                            initial_size[0], idim, ks[0], 1, ks[0] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
+                            domain=_domains[0], codomain=_codomains[0], atol=sn_atol, rtol=sn_rtol
                         )
                     )
                     if batchnorm:
                         nnet.append(layers.MovingBatchNorm2d(idim))
                     nnet.append(ACT_FNS[activation_fn](True))
-                if dropout:
-                    nnet.append(nn.Dropout2d(dropout, inplace=True))
-                nnet.append(
-                    _lipschitz_layer(fc)(
-                        idim, initial_size[0], ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
-                        domain=_domains[-1], codomain=_codomains[-1], atol=sn_atol, rtol=sn_rtol
+                    for i, k in enumerate(ks[1:-1]):
+                        nnet.append(
+                            _lipschitz_layer(fc)(
+                                idim, idim, k, 1, k // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
+                                domain=_domains[i + 1], codomain=_codomains[i +
+                                                                            1], atol=sn_atol, rtol=sn_rtol
+                            )
+                        )
+                        if batchnorm:
+                            nnet.append(layers.MovingBatchNorm2d(idim))
+                        nnet.append(ACT_FNS[activation_fn](True))
+                    if dropout:
+                        nnet.append(nn.Dropout2d(dropout, inplace=True))
+                    nnet.append(
+                        _lipschitz_layer(fc)(
+                            idim, initial_size[0], ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
+                            domain=_domains[-1], codomain=_codomains[-1], atol=sn_atol, rtol=sn_rtol
+                        )
                     )
-                )
-                if batchnorm:
-                    nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                    if batchnorm:
+                        nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                    return nn.Sequential(*nnet)
                 return layers.iResBlock(
-                    nn.Sequential(*nnet),
+                    build_nnet(),
                     n_power_series=n_power_series,
                     n_dist=n_dist,
                     n_samples=n_samples,

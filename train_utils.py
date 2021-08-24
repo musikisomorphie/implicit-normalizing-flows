@@ -16,6 +16,62 @@ import lib.layers as layers
 import lib.layers.base as base_layers
 
 
+class InferNet(nn.Module):
+    def __init__(self,
+                 model_name,
+                 num_classes,
+                 chn_dim,
+                 scale_factor=2,
+                 use_pretrained=False):
+        super(InferNet, self).__init__()
+
+        assert chn_dim % (scale_factor ** 2) == 0
+        self.pixel_shuffle = nn.PixelShuffle(scale_factor)
+
+        chn_dim //= (scale_factor ** 2)
+        model_name = model_name.lower()
+        if model_name == "resnet":
+            """ Resnet50
+            """
+            model_ft = models.resnet50(pretrained=use_pretrained)
+            model_ft.conv1 = nn.Conv2d(chn_dim, 64, kernel_size=7, stride=2, padding=3,
+                                       bias=False)
+            num_ftrs = model_ft.fc.in_features
+            model_ft.fc = nn.Linear(num_ftrs, num_classes)
+
+        elif model_name == "densenet":
+            """ Densenet121
+            """
+            model_ft = models.densenet121(pretrained=use_pretrained)
+            model_ft.conv0 = nn.Conv2d(chn_dim, 64, kernel_size=7, stride=2,
+                                       padding=3, bias=False)
+            num_ftrs = model_ft.classifier.in_features
+            model_ft.classifier = nn.Linear(num_ftrs, num_classes)
+
+        elif model_name == "mobilenet":
+            """ mobilenet v2
+            """
+            model_ft = models.mobilenet_v2(pretrained=use_pretrained)
+            num_ftrs = model_ft.classifier[1].in_features
+            model_ft.classifier[1] = nn.Linear(num_ftrs, num_classes)
+
+        elif model_name == "shufflenet":
+            """ shufflenet v2
+            """
+            model_ft = models.shufflenet_v2_x2_0(pretrained=use_pretrained)
+            num_ftrs = model_ft.fc.in_features
+            model_ft.fc = nn.Linear(num_ftrs, num_classes)
+        else:
+            raise ValueError('Invalid model name {}'.format(model_name))
+
+        self.backbone = model_ft
+
+    def forward(self, x):
+        x = self.pixel_shuffle(x)
+        x = self.backbone(x)
+        return x
+
+
 class RunningAverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -451,7 +507,9 @@ def data_prep(args, tst_size=384):
     dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
     trn_data, trn_loader = list(), list()
     for trn in trn_reg:
-        trn_data.append(datasets.SCRC(dat_path.format(trn),
+        trn_data.append(datasets.SCRC(scale_factor=args.scale_factor,
+                                      n_classes=n_classes,
+                                      scrc_path=dat_path.format(trn),
                                       scrc_in=scrc_in,
                                       scrc_out=scrc_out,
                                       transforms=trn_trans))
@@ -469,31 +527,32 @@ def data_prep(args, tst_size=384):
     for i in range(1):
         # tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
         tst_sub_idx = tst_idx
-        tst_data.append(datasets.SCRC(tst_path,
-                                      tst_sub_idx,
-                                      scrc_in,
-                                      scrc_out,
+        tst_data.append(datasets.SCRC(scale_factor=args.scale_factor,
+                                      n_classes=n_classes,
+                                      scrc_path=tst_path,
+                                      scrc_idx=tst_sub_idx,
+                                      scrc_in=scrc_in,
+                                      scrc_out=scrc_out,
                                       transforms=tst_trans))
-
         tst_loader.append(torch.utils.data.DataLoader(tst_data[-1],
                                                       batch_size=args.val_batchsize,
                                                       shuffle=False,
                                                       num_workers=args.nworkers,
                                                       drop_last=True))
 
-    input_size = (args.batchsize, len(scrc_in),
-                  args.imagesize, args.imagesize)
+    input_size = (args.batchsize,
+                  len(scrc_in) * (args.scale_factor ** 2) + 1,
+                  args.imagesize // args.scale_factor,
+                  args.imagesize // args.scale_factor)
 
     return trn_loader, tst_loader, n_classes, input_size
 
 
-def model_prep(args, flow_nm, input_size, n_classes):
-    if flow_nm.lower() == 'imflow':
+def model_prep(args, input_size, classifier):
+    if args.flow == 'imflow':
         norm_flow = ImplicitFlow
-    elif flow_nm.lower() == 'reflow':
+    elif args.flow == 'reflow':
         norm_flow = ResidualFlow
-    else:
-        raise ValueError('Invalid flow {}'.format(flow_nm))
 
     model = norm_flow(
         input_size,
@@ -527,8 +586,7 @@ def model_prep(args, flow_nm, input_size, n_classes):
         learn_p=args.learn_p,
         classification=args.task in ['classification', 'hybrid'],
         classification_hdim=args.cdim,
-        n_classes=n_classes,
-        classifier=args.classifier
+        classifier=classifier,
     )
 
     return model
