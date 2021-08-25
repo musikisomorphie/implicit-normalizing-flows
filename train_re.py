@@ -339,7 +339,7 @@ def validate(args,
     if ema is not None:
         ema.swap()
 
-    # utils.update_lipschitz(model)
+    utils.update_lipschitz(model)
 
     model.eval()
 
@@ -355,7 +355,7 @@ def validate(args,
             # bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                loss = criterion(logits, y)
+                # loss = criterion(logits, y)
                 # ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)
                 total += y.size(0)
