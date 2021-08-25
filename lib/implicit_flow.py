@@ -14,6 +14,7 @@ ACT_FNS = {
     'relu': lambda b: nn.ReLU(inplace=b),
     'sin': lambda b: base_layers.Sin(),
     'zero': lambda b: base_layers.Zero(),
+    # 'zeropad': lambda b: base_layers.PadZero(pad_dim=b),
 }
 
 
@@ -21,6 +22,8 @@ class ImplicitFlow(nn.Module):
 
     def __init__(
         self,
+        classifier,
+        couple_label,
         input_size,
         n_blocks=[16, 16],
         intermediate_dim=64,
@@ -53,7 +56,6 @@ class ImplicitFlow(nn.Module):
         classification=False,
         classification_hdim=64,
         block_type='imblock',
-        classifier=None,
     ):
         super(ImplicitFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -100,6 +102,8 @@ class ImplicitFlow(nn.Module):
         if self.classification:
             self.classifier = classifier
 
+        self.couple_label = couple_label
+
         self.fixed_z = utils.standard_normal_sample(
             [input_size[0] * 2, *input_size[1:]])
 
@@ -108,6 +112,7 @@ class ImplicitFlow(nn.Module):
         transforms = []
         _stacked_blocks = StackedImplicitBlocks
         for i in range(self.n_scale):
+            # TODO initial_size changed with scale
             transforms.append(
                 _stacked_blocks(
                     initial_size=(c, h, w),
@@ -199,7 +204,10 @@ class ImplicitFlow(nn.Module):
             return self.inverse(x, None)
 
         if classify:
-            logits = self.classifier(x[:, 1:])
+            if self.couple_label:
+                logits = self.classifier(x[:, 1:])
+            else:
+                logits = self.classifier(x)
 
         out = []
         for idx in range(len(self.transforms)):
@@ -289,6 +297,7 @@ class StackedImplicitBlocks(layers.SequentialFlow):
         grad_in_forward=False,
         first_resblock=True,
         learn_p=False,
+        zero_pad=0
     ):
 
         chain = []
@@ -402,12 +411,15 @@ class StackedImplicitBlocks(layers.SequentialFlow):
                         nnet.append(nn.Dropout2d(dropout, inplace=True))
                     nnet.append(
                         _lipschitz_layer(fc)(
-                            idim, initial_size[0], ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
+                            idim, initial_size[0] - zero_pad, ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
                             domain=_domains[-1], codomain=_codomains[-1], atol=sn_atol, rtol=sn_rtol
                         )
                     )
                     if batchnorm:
                         nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+
+                    if zero_pad:
+                        nnet.append(ACT_FNS['zeropad'](zero_pad))
                     return nn.Sequential(*nnet)
                 return layers.imBlock(
                     build_nnet(),

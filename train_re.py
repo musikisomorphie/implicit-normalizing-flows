@@ -28,15 +28,21 @@ parser.add_argument('--cuda', action='store_true', help='enables cuda')
 
 parser.add_argument('--flow', type=str, default='reflow',
                     choices=['reflow', 'imflow'])
+parser.add_argument('--classifier', type=str, default='resnet',
+                    choices=['resnet', 'densenet'])
 parser.add_argument('--scale-factor', type=int)
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--aug', type=str,
                     choices=['r', 'rr'])
 parser.add_argument('--inp', type=str,
-                    choices=['im'])
+                    choices=['i', 'im'])
 parser.add_argument('--oup', type=str,
                     choices=['cms'], default='cms')
+parser.add_argument('--couple-label', type=eval,
+                    choices=[True, False], default=False)
+parser.add_argument('--imagesize', type=int, default=32)
+parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 
 parser.add_argument(
     '--data', type=str, default='cifar10', choices=[
@@ -50,9 +56,7 @@ parser.add_argument(
         'scrc'
     ]
 )
-parser.add_argument('--classifier', type=str, default='resnet',
-                    choices=['resnet', 'densenet'])
-parser.add_argument('--imagesize', type=int, default=32)
+
 parser.add_argument('--dataroot', type=str, default='data')
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
 
@@ -112,7 +116,6 @@ parser.add_argument('--scheduler', type=eval,
                     choices=[True, False], default=False)
 parser.add_argument(
     '--nepochs', help='Number of epochs for training', type=int, default=1000)
-parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 parser.add_argument('--lr', help='Learning rate', type=float, default=1e-3)
 parser.add_argument('--wd', help='Weight decay', type=float, default=0)
 parser.add_argument('--warmup-iters', type=int, default=1000)
@@ -379,7 +382,7 @@ def validate(args,
 
 def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, phase='trn'):
     model.eval()
-    real_imgs = real_imgs[:16]
+    real_imgs = real_imgs[:32]
 
     with torch.no_grad():
         # reconstructed real images
@@ -387,16 +390,19 @@ def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, p
         recon_imgs = model(recon_z, inverse=True)
 
         # random samples
-        nucl_imgs = model(recon_z[:, -(scale_factor**2):], inverse=True)
+        # nucl_imgs = model(recon_z[:, -(scale_factor**2):], inverse=True)
         fake_imgs = model(torch.ones(
             [real_imgs.shape[0]]).to(real_imgs), inverse=True)
 
-        print('label diff {:4f}'.format(
-            torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
-        print('mask diff {:4f}'.format(
-            torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
-        imgs = torch.cat([real_imgs, nucl_imgs, fake_imgs, recon_imgs], 0)
-        imgs = torch.pixel_shuffle(imgs[:, 1:], scale_factor)
+        # print('label diff {:4f}'.format(
+        #     torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
+        # print('mask diff {:4f}'.format(
+        #     torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
+        # print('mask_in_out diff {:4f}'.format(
+        #     torch.mean(real_imgs[:, -4:] - recon_z[:, -4:])))
+        imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
+        imgs = imgs[:, imgs.shape[1] % (scale_factor ** 2):]
+        imgs = torch.pixel_shuffle(imgs, scale_factor)
         imgs = imgs[:, :3]
 
         filename = pathlib.Path(img_path) / \
@@ -407,9 +413,18 @@ def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, p
 
 
 def main(args):
-    args.save = pathlib.Path(args.save) / \
-        '{}_{}_{}_{}_{}'.format(args.env, args.aug, args.inp,
-                                args.imagesize, args.batchsize)
+    exp_config = ('{}_{}_{}_{}_{}_'
+                  '{}_{}_{}_{}_{}').format(args.flow,
+                                           args.classifier,
+                                           args.scale_factor,
+                                           args.env,
+                                           args.aug,
+                                           args.inp,
+                                           args.oup,
+                                           args.couple_label,
+                                           args.imagesize,
+                                           args.batchsize)
+    args.save = pathlib.Path(args.save) / exp_config
     (args.save / 'imgs').mkdir(parents=True, exist_ok=True)
     # logger
     logger = utils.get_logger(logpath=os.path.join(
@@ -440,7 +455,8 @@ def main(args):
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
-    classifier = utils.InferNet(args.classifier, n_classes, input_size[1] - 1)
+    input_chn = input_size[1] - 1 if args.couple_label else input_size[1]
+    classifier = utils.InferNet(args.classifier, n_classes, input_chn)
     model = utils.model_prep(args, input_size, classifier)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     parameters = filter(lambda p: p.requires_grad, model.parameters())

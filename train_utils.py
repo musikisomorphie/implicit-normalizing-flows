@@ -509,6 +509,7 @@ def data_prep(args, tst_size=384):
     for trn in trn_reg:
         trn_data.append(datasets.SCRC(scale_factor=args.scale_factor,
                                       n_classes=n_classes,
+                                      couple_label=args.couple_label,
                                       scrc_path=dat_path.format(trn),
                                       scrc_in=scrc_in,
                                       scrc_out=scrc_out,
@@ -529,6 +530,7 @@ def data_prep(args, tst_size=384):
         tst_sub_idx = tst_idx
         tst_data.append(datasets.SCRC(scale_factor=args.scale_factor,
                                       n_classes=n_classes,
+                                      couple_label=args.couple_label,
                                       scrc_path=tst_path,
                                       scrc_idx=tst_sub_idx,
                                       scrc_in=scrc_in,
@@ -541,9 +543,12 @@ def data_prep(args, tst_size=384):
                                                       drop_last=True))
 
     input_size = (args.batchsize,
-                  len(scrc_in) * (args.scale_factor ** 2) + 1,
+                  len(scrc_in) * (args.scale_factor ** 2),
                   args.imagesize // args.scale_factor,
                   args.imagesize // args.scale_factor)
+    
+    if args.couple_label:
+        input_size[1] += 1 
 
     return trn_loader, tst_loader, n_classes, input_size
 
@@ -555,7 +560,9 @@ def model_prep(args, input_size, classifier):
         norm_flow = ResidualFlow
 
     model = norm_flow(
-        input_size,
+        classifier=classifier,
+        couple_label=args.couple_label,
+        input_size=input_size,
         n_blocks=list(map(int, args.nblocks.split('-'))),
         intermediate_dim=args.idim,
         factor_out=args.factor_out,
@@ -586,7 +593,6 @@ def model_prep(args, input_size, classifier):
         learn_p=args.learn_p,
         classification=args.task in ['classification', 'hybrid'],
         classification_hdim=args.cdim,
-        classifier=classifier,
     )
 
     return model

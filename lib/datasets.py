@@ -112,6 +112,7 @@ class SCRC(Dataset):
     def __init__(self,
                  scale_factor,
                  n_classes,
+                 couple_label,
                  scrc_path,
                  scrc_idx=None,
                  scrc_in=None,
@@ -119,6 +120,7 @@ class SCRC(Dataset):
                  transforms=None):
         self.scale_factor = scale_factor
         self.n_classes = n_classes
+        self.couple_label = couple_label
 
         imgs, labs = torch.load(str(scrc_path))
         self.n_nuclei = torch.amax(imgs[:, -1])
@@ -175,12 +177,14 @@ class SCRC(Dataset):
         if self.transforms is not None:
             img = self.transforms(img)
 
-        img_out = torch.pixel_unshuffle(img, self.scale_factor)
-        lab_out = lab.float() * torch.ones((1,
-                                            img_out.shape[1],
-                                            img_out.shape[2])) / self.n_classes
+        img = torch.pixel_unshuffle(img, self.scale_factor)
+        if self.couple_label:
+            lab_out = lab.float() * torch.ones((1,
+                                                img.shape[1],
+                                                img.shape[2])) / self.n_classes
+            img = torch.cat((lab_out, img))
 
-        return torch.cat((lab_out, img_out)), lab.long()
+        return img, lab.long()
 
     @property
     def ndim(self):
