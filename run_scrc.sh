@@ -1,6 +1,5 @@
-CUDA_VISIBLE_DEVICES=0 python train_scrc.py --cuda  --data scrc \
-    --actnorm True --task classification \
-    --nblocks 1-1-1 --print-freq 60 --squeeze-first True \
-    --save 'experiments/scrc_256_128_decouple/' --imagesize 256 \
-    --dataroot /raid/jiqing/Data/SCRC/ --batchsize 16 --val-batchsize 32 --nepochs 100 \
-    --env '201' --aug 'rr' --inp 'i'
+#!/bin/bash
+
+sh ./run_scrc0.sh
+sh ./run_scrc1.sh
+sh ./run_scrc2.sh

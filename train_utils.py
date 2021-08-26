@@ -1,3 +1,4 @@
+import sys
 import math
 import numpy as np
 import pathlib
@@ -542,13 +543,13 @@ def data_prep(args, tst_size=384):
                                                       num_workers=args.nworkers,
                                                       drop_last=True))
 
-    input_size = (args.batchsize,
+    input_size = [args.batchsize,
                   len(scrc_in) * (args.scale_factor ** 2),
                   args.imagesize // args.scale_factor,
-                  args.imagesize // args.scale_factor)
-    
+                  args.imagesize // args.scale_factor]
+
     if args.couple_label:
-        input_size[1] += 1 
+        input_size[1] += 1
 
     return trn_loader, tst_loader, n_classes, input_size
 
@@ -596,3 +597,23 @@ def model_prep(args, input_size, classifier):
     )
 
     return model
+
+
+def custom_logger(logger_name, level=logging.DEBUG):
+    """Method to return a custom logger with the given name and level
+    """
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(level)
+    format_string = ("%(asctime)s — %(name)s — %(levelname)s — %(funcName)s:"
+                     "%(lineno)d — %(message)s")
+    log_format = logging.Formatter(format_string)
+    # Creating and adding the console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_format)
+    logger.addHandler(console_handler)
+    # Creating and adding the file handler
+    file_handler = logging.FileHandler(logger_name, mode='a')
+    file_handler.setFormatter(log_format)
+    logger.addHandler(file_handler)
+    return logger

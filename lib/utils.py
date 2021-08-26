@@ -12,6 +12,7 @@ import random
 import cv2
 import sys
 import pathlib
+import plotly.graph_objects as go
 
 NUL_CLR = {1: [0, 0, 255],  # blue, 16711680
            2: [255, 0, 0],  # red, 255
@@ -448,11 +449,55 @@ def cms_cell_stat(data_path):
         print('\n')
 
 
+def test_sankey():
+    # cms = ['T0_CMS1', 'T0_CMS2', 'T0_CMS3', 'T0_CMS4',
+    #        'T1_CMS1', 'T1_CMS2', 'T1_CMS3', 'T1_CMS4'
+    #        'TT_CMS1', 'TT_CMS2', 'TT_CMS3', 'TT_CMS4']
+    # source = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
+    #           ]
+    # target = [0, 1, 2, 3,
+    #           0, 1, 2, 3,
+    #           0, 1, 2, 3,
+    #           0, 1, 2, 3]
+    cms = [t + 'CMS'+str(i) for t in ('T0_', 'T1_', 'TT_')
+           for i in range(1, 5)]
+    source = [i for i in range(len(cms) * 2 // 3) for _ in range(4)]
+    target = [i for _ in range(4) for i in range(4, 8)] + \
+             [i for _ in range(4) for i in range(8, 12)]
+    
+    color = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', 
+             '#636EFA', '#EF553B', '#00CC96', '#AB63FA', 
+             '#636EFA', '#EF553B', '#00CC96', '#AB63FA',]
+
+    value = [np.random.randint(1, 20) for _ in range(len(source))]
+    # for pat in met0:
+    #     if pat >= 0 and pat in met1:
+    #         pat0 = np.argmax(met0[pat])
+    #         pat1 = np.argmax(met1[pat])
+    #         p_id = pat0 * len(cms) + pat1
+    #         value[p_id] += 1
+
+    node = dict(pad=5,
+                thickness=5,
+                line=dict(color='black', width=1),
+                label=cms,
+                color=color)
+
+    link = dict(source=source,
+                target=target,
+                value=value)
+
+    data = [go.Sankey(node=node, link=link)]
+    fig = go.Figure(data=data)
+    fig.write_image('{}_sankey.png'.format(0))
+
+
 def main():
-    data_path = '/home/histopath/Data/SCRC_nuclei/'
-    data_size = 1024
-    # creat_mock_data(data_path, data_size)
-    cms_cell_stat(data_path)
+    # data_path = '/home/histopath/Data/SCRC_nuclei/'
+    # data_size = 1024
+    # # creat_mock_data(data_path, data_size)
+    # cms_cell_stat(data_path)
+    test_sankey()
 
 
 if __name__ == '__main__':
