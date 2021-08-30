@@ -85,7 +85,7 @@ class PadZero(nn.Module):
         # print('pad_shape', pad_shape)
         pad_shape[1] = self.pad_dim
         x_pad = torch.zeros(pad_shape).to(x)
-        return torch.cat((x, x_pad), dim=1)
+        return torch.cat((x_pad, x), dim=1)
 
 
 if __name__ == '__main__':

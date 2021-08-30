@@ -7,19 +7,26 @@ __all__ = ['ActNorm1d', 'ActNorm2d']
 
 class ActNormNd(nn.Module):
 
-    def __init__(self, num_features, eps=1e-12):
+    def __init__(self, num_features, zero_pad=0, eps=1e-12):
         super(ActNormNd, self).__init__()
-        self.num_features = num_features
+        assert zero_pad >= 0
+        self.num_features = num_features - zero_pad
+        self.zero_pad = zero_pad
         self.eps = eps
-        self.weight = Parameter(torch.Tensor(num_features))
-        self.bias = Parameter(torch.Tensor(num_features))
+
+        self.weight = Parameter(torch.Tensor(self.num_features))
+        self.bias = Parameter(torch.Tensor(self.num_features))
         self.register_buffer('initialized', torch.tensor(0))
+        # print(self.weight.shape, self.bias.shape)
 
     @property
     def shape(self):
         raise NotImplementedError
 
     def forward(self, x, logpx=None, restore=None):
+        if self.zero_pad:
+            x_pad, x = x[:, :self.zero_pad], x[:, self.zero_pad:]
+
         c = x.size(1)
 
         if not self.initialized:
@@ -30,7 +37,8 @@ class ActNormNd(nn.Module):
                 batch_var = torch.var(x_t, dim=1)
 
                 # for numerical issues
-                batch_var = torch.max(batch_var, torch.tensor(0.2).to(batch_var))
+                batch_var = torch.max(
+                    batch_var, torch.tensor(0.2).to(batch_var))
 
                 self.bias.data.copy_(-batch_mean)
                 self.weight.data.copy_(-0.5 * torch.log(batch_var))
@@ -40,6 +48,8 @@ class ActNormNd(nn.Module):
         weight = self.weight.view(*self.shape).expand_as(x)
 
         y = (x + bias.to(x)) * torch.exp(weight.to(x))
+        if self.zero_pad:
+            y = torch.cat((x_pad, y), dim=1)
 
         if logpx is None:
             return y
@@ -48,18 +58,24 @@ class ActNormNd(nn.Module):
 
     def inverse(self, y, logpy=None):
         assert self.initialized
+        if self.zero_pad:
+            y_pad, y = y[:, :self.zero_pad], y[:, self.zero_pad:]
+
         bias = self.bias.view(*self.shape).expand_as(y)
         weight = self.weight.view(*self.shape).expand_as(y)
 
         x = y * torch.exp(-weight) - bias
 
+        if self.zero_pad:
+            x = torch.cat((y_pad, x), dim=1)
+
         if logpy is None:
             return x
         else:
-            return x, logpy + self._logdetgrad(x)
+            return x, logpy + self._logdetgrad(x[:, self.zero_pad:])
 
     def _logdetgrad(self, x):
-        return self.weight.view(*self.shape).expand(*x.size()).contiguous().view(x.size(0), -1).sum(1, keepdim=True)
+        return self.weight.view(*self.shape).expand(*x.shape).contiguous().view(x.shape[0], -1).sum(1, keepdim=True)
 
     def __repr__(self):
         return ('{name}({num_features})'.format(name=self.__class__.__name__, **self.__dict__))

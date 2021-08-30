@@ -14,7 +14,7 @@ ACT_FNS = {
     'relu': lambda b: nn.ReLU(inplace=b),
     'sin': lambda b: base_layers.Sin(),
     'zero': lambda b: base_layers.Zero(),
-    # 'zeropad': lambda b: base_layers.PadZero(pad_dim=b),
+    'zeropad': lambda b: base_layers.PadZero(pad_dim=b),
 }
 
 
@@ -204,7 +204,7 @@ class ResidualFlow(nn.Module):
 
         if classify:
             if self.couple_label:
-                logits = self.classifier(x[:, 1:])
+                logits = self.classifier(x[:, :-1])
             else:
                 logits = self.classifier(x)
 
@@ -217,7 +217,7 @@ class ResidualFlow(nn.Module):
                 x = self.transforms[idx].forward(x, restore=restore)
             if self.factor_out and (idx < len(self.transforms) - 1):
                 d = x.size(1) // 2
-                x, f = x[:, :d], x[:, d:]
+                f, x = x[:, :d], x[:, d:]
                 out.append(f)
 
         out.append(x)
@@ -243,13 +243,13 @@ class ResidualFlow(nn.Module):
             if logpz is None:
                 z_prev = self.transforms[-1].inverse(zs[-1])
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((z_prev, zs[idx]), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
                     z_prev = self.transforms[idx].inverse(z_prev)
                 return z_prev
             else:
                 z_prev, logpz = self.transforms[-1].inverse(zs[-1], logpz)
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((z_prev, zs[idx]), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
                     z_prev, logpz = self.transforms[idx].inverse(z_prev, logpz)
                 return z_prev, logpz
         else:
@@ -294,9 +294,9 @@ class StackediResBlocks(layers.SequentialFlow):
         preact=False,
         neumann_grad=True,
         grad_in_forward=False,
-        first_resblock=False,
+        first_resblock=True,
         learn_p=False,
-        zero_pad=0
+        zero_pad=4
     ):
 
         chain = []
@@ -311,13 +311,18 @@ class StackediResBlocks(layers.SequentialFlow):
         domains, codomains = ps[:-1], ps[1:]
         assert len(domains) == len(kernels.split('-'))
 
-        def _actnorm(size, fc):
+        def _lipschitz_layer(fc):
+            return base_layers.get_linear if fc else base_layers.get_conv2d
+
+        def _actnorm(size, fc, zero_pad=0):
+            # TODO fc is not compatiable with zero_pad
             if fc:
                 return FCWrapper(layers.ActNorm1d(size[0] * size[1] * size[2]))
             else:
-                return layers.ActNorm2d(size[0])
+                return layers.ActNorm2d(size[0], zero_pad)
 
-        def _quadratic_layer(initial_size, fc):
+        def _quadratic_layer(initial_size, fc, zero_pad=0):
+            # TODO fc is not compatible with zero_grad
             if fc:
                 c, h, w = initial_size
                 dim = c * h * w
@@ -325,10 +330,8 @@ class StackediResBlocks(layers.SequentialFlow):
             else:
                 return layers.InvertibleConv2d(initial_size[0])
 
-        def _lipschitz_layer(fc):
-            return base_layers.get_linear if fc else base_layers.get_conv2d
-
-        def _resblock(initial_size, fc, idim=idim, first_resblock=False):
+        def _resblock(initial_size, fc, idim, first_resblock, n_block, zero_pad=0):
+            # TODO fc is not compatible with zero_grad
             if fc:
                 return layers.iResBlock(
                     FCNet(
@@ -365,7 +368,7 @@ class StackediResBlocks(layers.SequentialFlow):
                         _domains = domains
                         _codomains = codomains
                     nnet = []
-                    if not first_resblock and preact:
+                    if not (first_resblock and n_block == 0) and preact:
                         if batchnorm:
                             nnet.append(
                                 layers.MovingBatchNorm2d(initial_size[0]))
@@ -392,6 +395,7 @@ class StackediResBlocks(layers.SequentialFlow):
                         nnet.append(ACT_FNS[activation_fn](True))
                     if dropout:
                         nnet.append(nn.Dropout2d(dropout, inplace=True))
+
                     nnet.append(
                         _lipschitz_layer(fc)(
                             idim, initial_size[0] - zero_pad, ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
@@ -399,7 +403,8 @@ class StackediResBlocks(layers.SequentialFlow):
                         )
                     )
                     if batchnorm:
-                        nnet.append(layers.MovingBatchNorm2d(initial_size[0]))
+                        nnet.append(layers.MovingBatchNorm2d(
+                            initial_size[0] - zero_pad))
 
                     if zero_pad:
                         nnet.append(ACT_FNS['zeropad'](zero_pad))
@@ -414,30 +419,33 @@ class StackediResBlocks(layers.SequentialFlow):
                     grad_in_forward=grad_in_forward,
                 )
 
-        if init_layer is not None:
+        if not first_resblock and init_layer is not None:
             chain.append(init_layer)
         if first_resblock and actnorm:
-            chain.append(_actnorm(initial_size, fc))
+            chain.append(_actnorm(initial_size, fc, zero_pad))
         if first_resblock and fc_actnorm:
-            chain.append(_actnorm(initial_size, True))
+            chain.append(_actnorm(initial_size, True, zero_pad))
 
         if squeeze:
             c, h, w = initial_size
+            z_pad = zero_pad if first_resblock else 0
             for i in range(n_blocks):
                 if quadratic:
                     chain.append(_quadratic_layer(initial_size, fc))
-                chain.append(_resblock(initial_size, fc,
-                                       first_resblock=first_resblock and (i == 0)))
+                chain.append(_resblock(initial_size, fc, idim,
+                                       first_resblock, i, z_pad))
                 if actnorm:
-                    chain.append(_actnorm(initial_size, fc))
+                    chain.append(_actnorm(initial_size, fc, z_pad))
                 if fc_actnorm:
-                    chain.append(_actnorm(initial_size, True))
+                    chain.append(_actnorm(initial_size, True, z_pad))
             chain.append(layers.SqueezeLayer(2))
         else:
-            for _ in range(n_blocks):
+            # TODO: last layer also need to append zero
+            for i in range(n_blocks):
                 if quadratic:
                     chain.append(_quadratic_layer(initial_size, fc))
-                chain.append(_resblock(initial_size, fc))
+                chain.append(_resblock(initial_size, fc, idim,
+                                       first_resblock, i))
                 if actnorm:
                     chain.append(_actnorm(initial_size, fc))
                 if fc_actnorm:
@@ -445,7 +453,8 @@ class StackediResBlocks(layers.SequentialFlow):
             # Use four fully connected layers at the end.
             if fc_end:
                 for _ in range(fc_nblocks):
-                    chain.append(_resblock(initial_size, True, fc_idim))
+                    chain.append(_resblock(initial_size, True, fc_idim,
+                                           first_resblock, n_blocks))
                     if actnorm or fc_actnorm:
                         chain.append(_actnorm(initial_size, True))
 

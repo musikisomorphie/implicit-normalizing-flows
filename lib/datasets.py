@@ -151,6 +151,10 @@ class SCRC(Dataset):
         if scrc_in is not None:
             self.imgs = self.imgs[:, scrc_in]
 
+        if [0, 1, 2, 4] == scrc_in:
+            print('switch to mask_dim==0')
+            self.imgs = self.imgs[:, [-1, 0, 1, 2]]
+
     def _proc_lab(self, labs, scrc_out=None):
         if scrc_out is not None:
             if not isinstance(scrc_out, str):
@@ -189,7 +193,7 @@ class SCRC(Dataset):
             lab_out = lab.float() * torch.ones((1,
                                                 img.shape[1],
                                                 img.shape[2])) / self.n_classes
-            img = torch.cat((lab_out, img))
+            img = torch.cat((img, lab_out))
             lab = lab.long()
 
         if self.scrc_pat:

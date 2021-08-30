@@ -398,8 +398,9 @@ def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, p
         #     torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
         # print('mask diff {:4f}'.format(
         #     torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
-        # print('mask_in_out diff {:4f}'.format(
-        #     torch.mean(real_imgs[:, -4:] - recon_z[:, -4:])))
+        # TODO couple label is a potential bug
+        print('mask_in_out diff {:4f}'.format(
+            torch.mean(real_imgs[:, :4] - recon_z[:, :4])))
         imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
         imgs = imgs[:, imgs.shape[1] % (scale_factor ** 2):]
         imgs = torch.pixel_shuffle(imgs, scale_factor)
