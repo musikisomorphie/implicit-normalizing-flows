@@ -161,6 +161,7 @@ ce_meter = utils.RunningAverageMeter(0.97)
 
 def compute_loss(x,
                  model,
+                 zero_pad,
                  beta=1.0,
                  nvals=256):
     bits_per_dim = torch.zeros(1).to(x)
@@ -177,6 +178,7 @@ def compute_loss(x,
 
     if args.task in ['density', 'hybrid']:
         # log p(z)
+        z = z[:, zero_pad:]
         logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
 
         # log p(x)
@@ -201,7 +203,8 @@ def train(args,
           trn_loader,
           optimizer,
           logger,
-          ema):
+          ema,
+          zero_pad):
 
     model.train()
 
@@ -234,7 +237,7 @@ def train(args,
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
         bpd, logits, logpz, neg_delta_logp = compute_loss(
-            x, model, beta=beta)
+            x, model, zero_pad, beta=beta)
 
         if args.task in ['density', 'hybrid']:
             firmom, secmom = utils.estimator_moments(model)
@@ -314,7 +317,8 @@ def train(args,
             visualize(epoch, model, i, x,
                       args.save / 'imgs',
                       args.scale_factor,
-                      phase='trn')
+                      phase='trn',
+                      zero_pad=zero_pad)
 
         del x
         torch.cuda.empty_cache()
@@ -329,7 +333,8 @@ def validate(args,
              dat_loader,
              phase,
              logger,
-             ema=None):
+             ema=None,
+             zero_pad=0):
     """
     Evaluates the cross entropy between p_data and p_model.
     """
@@ -351,7 +356,7 @@ def validate(args,
         for i, (x, y) in enumerate(tqdm(dat_loader)):
             x = x.to(device)
             y = y.to(device)
-            bpd, logits, _, _ = compute_loss(x, model)
+            bpd, logits, _, _ = compute_loss(x, model, zero_pad)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
@@ -365,7 +370,8 @@ def validate(args,
                 visualize(epoch, model, i, x,
                           args.save / 'imgs',
                           args.scale_factor,
-                          phase='val')
+                          phase='val',
+                          zero_pad=zero_pad)
 
     val_time = time.time() - start
 
@@ -380,7 +386,15 @@ def validate(args,
     return bpd_meter.avg
 
 
-def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, phase='trn'):
+def visualize(epoch,
+              model,
+              itr,
+              real_imgs,
+              img_path,
+              scale_factor,
+              nvals=256,
+              phase='trn',
+              zero_pad=0):
     model.eval()
     real_imgs = real_imgs[:32]
 
@@ -390,9 +404,9 @@ def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, p
         recon_imgs = model(recon_z, inverse=True)
 
         # random samples
-        # nucl_imgs = model(recon_z[:, -(scale_factor**2):], inverse=True)
-        fake_imgs = model(torch.ones(
-            [real_imgs.shape[0]]).to(real_imgs), inverse=True)
+        fake_imgs = model(recon_z[:, :zero_pad], inverse=True)
+        # fake_imgs = model(torch.ones(
+        #     [real_imgs.shape[0]]).to(real_imgs), inverse=True)
 
         # print('label diff {:4f}'.format(
         #     torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
@@ -400,11 +414,11 @@ def visualize(epoch, model, itr, real_imgs, img_path, scale_factor, nvals=256, p
         #     torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
         # TODO couple label is a potential bug
         print('mask_in_out diff {:4f}'.format(
-            torch.mean(real_imgs[:, :4] - recon_z[:, :4])))
+            torch.mean(real_imgs[:, :zero_pad] - recon_z[:, :zero_pad])))
         imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
-        imgs = imgs[:, imgs.shape[1] % (scale_factor ** 2):]
+        imgs = imgs[:, zero_pad:]
         imgs = torch.pixel_shuffle(imgs, scale_factor)
-        imgs = imgs[:, :3]
+        # imgs = imgs[:, -3:]
 
         filename = pathlib.Path(img_path) / \
             'e{:03d}_i{:06d}_{}.png'.format(epoch, itr, phase)
@@ -452,13 +466,14 @@ def main(args):
         logger.info('WARNING: Using device {}'.format(device))
 
     logger.info('Loading dataset {}'.format(args.data))
-    trn_loader, tst_loader, n_classes, input_size = utils.data_prep(args)
+    trn_loader, tst_loader, n_classes, input_size, zero_pad = utils.data_prep(
+        args)
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
     input_chn = input_size[1] - 1 if args.couple_label else input_size[1]
     classifier = utils.InferNet(args.classifier, n_classes, input_chn)
-    model = utils.model_prep(args, input_size, classifier)
+    model = utils.model_prep(args, input_size, classifier, zero_pad)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     model, optimizer, _, __ = deepspeed.initialize(args=args,
@@ -486,7 +501,8 @@ def main(args):
               trn_loader,
               optimizer,
               logger,
-              ema)
+              ema,
+              zero_pad)
 
         lipschitz_constants.append(utils.get_lipschitz_constants(model))
         ords.append(utils.get_ords(model))
@@ -502,7 +518,8 @@ def main(args):
                            tst_loader[0],
                            'VAL',
                            logger,
-                           ema=ema if args.ema_val else None)
+                           ema=ema if args.ema_val else None,
+                           zero_pad=zero_pad)
 
         if args.scheduler and scheduler is not None:
             scheduler.step()

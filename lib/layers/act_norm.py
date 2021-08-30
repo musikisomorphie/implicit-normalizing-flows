@@ -17,7 +17,7 @@ class ActNormNd(nn.Module):
         self.weight = Parameter(torch.Tensor(self.num_features))
         self.bias = Parameter(torch.Tensor(self.num_features))
         self.register_buffer('initialized', torch.tensor(0))
-        # print(self.weight.shape, self.bias.shape)
+        print(self.weight.shape, self.bias.shape)
 
     @property
     def shape(self):

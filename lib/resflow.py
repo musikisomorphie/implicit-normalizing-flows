@@ -56,6 +56,7 @@ class ResidualFlow(nn.Module):
         classification=False,
         classification_hdim=64,
         block_type='resblock',
+        zero_pad=0
     ):
         super(ResidualFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -90,6 +91,7 @@ class ResidualFlow(nn.Module):
         self.classification = classification
         self.classification_hdim = classification_hdim
         self.block_type = block_type
+        self.zero_pad = zero_pad
 
         if not self.n_scale > 0:
             raise ValueError(
@@ -143,6 +145,7 @@ class ResidualFlow(nn.Module):
                     grad_in_forward=self.grad_in_forward,
                     first_resblock=self.first_resblock and (i == 0),
                     learn_p=self.learn_p,
+                    zero_pad=self.zero_pad
                 )
             )
             c, h, w = c * 2 if self.factor_out else c * 4, h // 2, w // 2
@@ -187,8 +190,8 @@ class ResidualFlow(nn.Module):
             elif x.shape[1] < self.fixed_z.shape[1]:
                 print('nucl shape', x.shape, self.fixed_z.shape)
                 assert self.fixed_z.shape[0] >= x.shape[0]
-                x = torch.cat((self.fixed_z[:x.shape[0], :-x.shape[1]].to(x),
-                               x), dim=1)
+                x = torch.cat((x,
+                               self.fixed_z[:x.shape[0], :-x.shape[1]].to(x)), dim=1)
             #     fixed_z = input.view(-1, *self.trans_size[1:])
             # else:
             #     assert input.shape[0] == 1
@@ -204,7 +207,7 @@ class ResidualFlow(nn.Module):
 
         if classify:
             if self.couple_label:
-                logits = self.classifier(x[:, :-1])
+                logits = self.classifier(x[:, 1:])
             else:
                 logits = self.classifier(x)
 
@@ -296,7 +299,7 @@ class StackediResBlocks(layers.SequentialFlow):
         grad_in_forward=False,
         first_resblock=True,
         learn_p=False,
-        zero_pad=4
+        zero_pad=0
     ):
 
         chain = []
