@@ -511,7 +511,7 @@ def data_prep(args, tst_size=384):
     trn_reg = args.env[:2]
     tst_reg = args.env[-1]
 
-    dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
+    dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_circle_{}.pt')
     trn_data, trn_loader = list(), list()
     for trn in trn_reg:
         trn_data.append(datasets.SCRC(scale_factor=args.scale_factor,
