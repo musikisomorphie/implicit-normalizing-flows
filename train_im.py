@@ -404,17 +404,20 @@ def visualize(epoch,
         recon_imgs = model(recon_z, inverse=True)
 
         # random samples
-        fake_imgs = model(recon_z[:, :zero_pad], inverse=True)
-        # fake_imgs = model(torch.ones(
-        #     [real_imgs.shape[0]]).to(real_imgs), inverse=True)
+        if zero_pad:
+            fake_imgs = model(recon_z[:, :zero_pad], inverse=True)
+            print('mask_in_out diff {:4f}'.format(
+                torch.mean(real_imgs[:, :zero_pad] - recon_z[:, :zero_pad])))
+        else:
+            fake_imgs = model(torch.ones(
+                [real_imgs.shape[0]]).to(real_imgs), inverse=True)
 
         # print('label diff {:4f}'.format(
         #     torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
         # print('mask diff {:4f}'.format(
         #     torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
         # TODO couple label is a potential bug
-        print('mask_in_out diff {:4f}'.format(
-            torch.mean(real_imgs[:, :zero_pad] - recon_z[:, :zero_pad])))
+
         imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
         imgs = imgs[:, zero_pad:]
         imgs = torch.pixel_shuffle(imgs, scale_factor)
