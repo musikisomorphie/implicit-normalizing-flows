@@ -471,11 +471,12 @@ def initialize_model(model_name,
 def data_prep(args, tst_size=384):
     if args.aug == 'r':
         trn_trans = transforms.Compose([
-            transforms.RandomCrop(args.imagesize),
+            # transforms.RandomCrop(args.imagesize),
+            transforms.Resize([args.imagesize, args.imagesize]),
         ])
     elif args.aug == 'rr':
         trn_trans = transforms.Compose([
-            transforms.RandomCrop(args.imagesize),
+            transforms.Resize([args.imagesize, args.imagesize]),
             # utils.HEDJitter(0.05),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
@@ -488,7 +489,7 @@ def data_prep(args, tst_size=384):
         ])
 
     tst_trans = transforms.Compose([
-        transforms.CenterCrop(args.imagesize)
+        transforms.Resize([args.imagesize, args.imagesize]),
     ])
 
     if args.inp == 'i':
@@ -599,7 +600,7 @@ def model_prep(args, input_size, classifier, zero_pad):
         learn_p=args.learn_p,
         classification=args.task in ['classification', 'hybrid'],
         classification_hdim=args.cdim,
-        zero_pad = zero_pad
+        zero_pad=zero_pad
     )
 
     return model
