@@ -220,7 +220,7 @@ class ResidualFlow(nn.Module):
                 x = self.transforms[idx].forward(x, restore=restore)
             if self.factor_out and (idx < len(self.transforms) - 1):
                 d = x.size(1) // 2
-                f, x = x[:, :d], x[:, d:]
+                f, x = x[:, :d], x[:, d:] + x[:, :d]
                 out.append(f)
 
         out.append(x)
@@ -246,13 +246,13 @@ class ResidualFlow(nn.Module):
             if logpz is None:
                 z_prev = self.transforms[-1].inverse(zs[-1])
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev - zs[idx]), dim=1)
                     z_prev = self.transforms[idx].inverse(z_prev)
                 return z_prev
             else:
                 z_prev, logpz = self.transforms[-1].inverse(zs[-1], logpz)
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev - zs[idx]), dim=1)
                     z_prev, logpz = self.transforms[idx].inverse(z_prev, logpz)
                 return z_prev, logpz
         else:

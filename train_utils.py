@@ -170,13 +170,15 @@ class HEDJitter(object):
          the jitter formula is **s' = \alpha * s + \betti**
     """
 
-    def __init__(self, theta=0.):  # HED_light: theta=0.05; HED_strong: theta=0.2
+    # HED_light: theta=0.05; HED_strong: theta=0.2
+    def __init__(self, theta=0., keep_hed=False):
         assert isinstance(
             theta, Number), "theta should be a single number."
         self.theta = theta
+        self.keep_hed = keep_hed
 
     @staticmethod
-    def adjust_HED(image, theta):
+    def adjust_HED(image, theta, keep_hed):
         alpha = np.random.uniform(1-theta, 1+theta, (1, 3))
         betti = np.random.uniform(-theta, theta, (1, 3))
 
@@ -189,7 +191,10 @@ class HEDJitter(object):
 
         s = np.reshape(color.rgb2hed(img), (-1, 3))
         ns = alpha * s + betti  # perturbations on HED color space
-        nimg = color.hed2rgb(np.reshape(ns, img.shape))
+
+        nimg = np.reshape(ns, img.shape)
+        if not keep_hed:
+            nimg = color.hed2rgb(nimg)
 
         # # pt data visualization
         # rand_id = random.randint(0, 10000)
@@ -222,7 +227,7 @@ class HEDJitter(object):
         return image
 
     def __call__(self, img):
-        return self.adjust_HED(img, self.theta)
+        return self.adjust_HED(img, self.theta, self.keep_hed)
 
     def __repr__(self):
         format_string = self.__class__.__name__ + '('
@@ -473,11 +478,12 @@ def data_prep(args, tst_size=384):
         trn_trans = transforms.Compose([
             # transforms.RandomCrop(args.imagesize),
             transforms.Resize([args.imagesize, args.imagesize]),
+            # HEDJitter(0, True),
         ])
     elif args.aug == 'rr':
         trn_trans = transforms.Compose([
             transforms.Resize([args.imagesize, args.imagesize]),
-            # utils.HEDJitter(0.05),
+            # HEDJitter(0, True),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
             transforms.RandomApply(
@@ -490,6 +496,7 @@ def data_prep(args, tst_size=384):
 
     tst_trans = transforms.Compose([
         transforms.Resize([args.imagesize, args.imagesize]),
+        # HEDJitter(0, True),
     ])
 
     if args.inp == 'i':

@@ -426,7 +426,7 @@ def visualize(epoch,
         filename = pathlib.Path(img_path) / \
             'e{:03d}_i{:06d}_{}.png'.format(epoch, itr, phase)
         tv_utils.save_image(imgs.cpu().float(), str(
-            filename), nrow=16, padding=2)
+            filename), nrow=8, padding=2)
     model.train()
 
 
@@ -513,16 +513,16 @@ def main(args):
             utils.pretty_repr(lipschitz_constants[-1])))
         # logger.info('Order: {}'.format(utils.pretty_repr(ords[-1])))
 
-        val_bpd = validate(args,
-                           device,
-                           epoch,
-                           model,
-                           criterion,
-                           tst_loader[0],
-                           'VAL',
-                           logger,
-                           ema=ema if args.ema_val else None,
-                           zero_pad=zero_pad)
+        # val_bpd = validate(args,
+        #                    device,
+        #                    epoch,
+        #                    model,
+        #                    criterion,
+        #                    tst_loader[0],
+        #                    'VAL',
+        #                    logger,
+        #                    ema=ema if args.ema_val else None,
+        #                    zero_pad=zero_pad)
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
