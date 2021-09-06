@@ -47,7 +47,7 @@ parser.add_argument('--oup', type=str,
                     choices=['cms'], default='cms')
 parser.add_argument('--couple-label', type=eval,
                     choices=[True, False], default=False)
-parser.add_argument('--right-pad', type=int, default=3)
+parser.add_argument('--right-pad', type=int, default=0)
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 
