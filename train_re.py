@@ -407,37 +407,66 @@ def visualize(epoch,
 
     with torch.no_grad():
         # reconstructed real images
-        recon_z = model(real_imgs).view(real_imgs.shape)
-        recon_imgs = model(recon_z, inverse=True)
+        real_z = model(real_imgs)
+        # recon_z = real_z.clone().view(real_imgs.shape)
+        recon_imgs = model(real_z, inverse=True)
 
         # random samples
         if left_pad:
-            fake_imgs = model(recon_z[:, :left_pad], inverse=True)
-            print('mask_in_out diff {:4f}'.format(
-                torch.mean(real_imgs[:, :left_pad] - recon_z[:, :left_pad])))
+            # TODO not compatible with couople_label
+            ncls_len = np.prod(real_imgs.shape[2:]) * (scale_factor ** 2)
+            ncls = real_z[:, :ncls_len]
+            fake_imgs = model(ncls, inverse=True)
+
+            ncls = ncls.view(real_imgs.shape[0],
+                             -1,
+                             real_imgs.shape[2] // 2,
+                             real_imgs.shape[3] // 2)
+            ncls = torch.pixel_shuffle(ncls,
+                                       scale_factor)
+            diff_recn = (real_imgs[:, :left_pad] -
+                         recon_imgs[:, :left_pad]).abs().max()
+            diff_fake = (real_imgs[:, :left_pad] -
+                         fake_imgs[:, :left_pad]).abs().max()
+            diff_nucl = (real_imgs[:, :left_pad] - ncls).abs().max()
+            print('diff {:10f}, {:10f}, {:10f}'.format(diff_recn,
+                                                       diff_fake,
+                                                       diff_nucl))
+            print('ncls',
+                  torch.unique(recon_imgs[:, :left_pad]),
+                  torch.unique(fake_imgs[:, :left_pad]),
+                  torch.unique(ncls))
         else:
             fake_imgs = model(torch.ones(
                 [real_imgs.shape[0]]).to(real_imgs), inverse=True)
 
-        # print('label diff {:4f}'.format(
-        #     torch.mean(real_imgs[:, 0] - recon_imgs[:, 0])))
-        # print('mask diff {:4f}'.format(
-        #     torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
-        # TODO couple label is a potential bug
-
         imgs = torch.cat([real_imgs, recon_imgs, fake_imgs], 0)
         imgs = imgs[:, left_pad:]
         imgs = torch.pixel_shuffle(imgs, scale_factor)
+
         if left_pad:
-            ncls = torch.pixel_shuffle(real_imgs[:, :left_pad],
+            ncls = torch.pixel_shuffle(ncls,
                                        scale_factor)
-            imgs -= torch.cat((ncls, ncls, ncls), dim=0)
+            ncls = torch.round(ncls * 5.)
             faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
             ncls = ncls.squeeze()
-            for i in range(1, 6):
-                faks[ncls == i/5.] = torch.tensor(BERN_id[i]).to(faks)
-            imgs = torch.cat([imgs, faks.permute(0, 3, 1, 2)], 0)
-        # imgs = imgs[:, -3:]
+
+            ncls_gt = real_imgs[:, :left_pad].clone()
+            ncls_gt = torch.pixel_shuffle(ncls_gt,
+                                          scale_factor)
+            ncls_gt = torch.round(ncls_gt * 5.)
+            faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
+            ncls_gt = ncls_gt.squeeze()
+
+            msk_diff = (ncls_gt - ncls).abs().max()
+            print('diff after pixelshuffle {:8f}'.format(msk_diff))
+
+            for i in (1, 2, 4):
+                faks[ncls == i] = torch.tensor(BERN_id[i]).to(faks)
+                faks_gt[ncls_gt == i] = torch.tensor(BERN_id[i]).to(faks_gt)
+            imgs = torch.cat([imgs,
+                              #   faks.permute(0, 3, 1, 2),
+                              faks_gt.permute(0, 3, 1, 2)], 0)
 
         filename = pathlib.Path(img_path) / \
             'e{:03d}_i{:06d}_{}.png'.format(epoch, itr, phase)

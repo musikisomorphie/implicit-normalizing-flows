@@ -429,13 +429,16 @@ def visualize(epoch,
         imgs = imgs[:, left_pad:]
         imgs = torch.pixel_shuffle(imgs, scale_factor)
         if left_pad:
-            ncls = torch.pixel_shuffle(real_imgs[:, :left_pad],
+            ncls = torch.pixel_shuffle(recon_z[:, :left_pad],
                                        scale_factor)
-            imgs -= torch.cat((ncls, ncls, ncls), dim=0)
+            print('mask_in_out diff1 {:4f}'.format(
+                torch.mean(real_imgs[:, :left_pad] - recon_z[:, :left_pad])))
+            ncls = torch.round(ncls * 5.)
+            # imgs -= torch.cat((ncls, ncls, ncls), dim=0)
             faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
             ncls = ncls.squeeze()
-            for i in range(1, 6):
-                faks[ncls == i/5.] = torch.tensor(BERN_id[i]).to(faks)
+            for i in (1, 2, 4):
+                faks[ncls == i] = torch.tensor(BERN_id[i]).to(faks)
             imgs = torch.cat([imgs, faks.permute(0, 3, 1, 2)], 0)
         # imgs = imgs[:, -3:]
 

@@ -109,7 +109,7 @@ class ImplicitFlow(nn.Module):
         self.couple_label = couple_label
 
         self.fixed_z = utils.standard_normal_sample(
-            [input_size[0] * 2, *input_size[1:]])
+            [input_size[0] * 2, np.prod(input_size[1:])])
 
     def _build_net(self, input_size):
         _, c, h, w = input_size

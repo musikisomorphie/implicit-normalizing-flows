@@ -6,6 +6,7 @@ import logging
 import torch
 import torchvision.transforms as transforms
 import torch.nn as nn
+import torchvision.transforms.functional as F
 from torchvision import models
 from skimage import color
 from numbers import Number
@@ -234,6 +235,60 @@ class HEDJitter(object):
         format_string += 'theta={0})'.format(self.theta)
         # format_string += ',alpha={0}'.format(self.alpha)
         # format_string += ',betti={0}'.format(self.betti)
+        return format_string
+
+
+class ResizeMix(object):
+    """Randomly perturbe the HED color space value an RGB image.
+    First, it disentangled the hematoxylin and eosin color channels by color deconvolution method using a fixed matrix.
+    Second, it perturbed the hematoxylin, eosin and DAB stains independently.
+    Third, it transformed the resulting stains into regular RGB color space.
+    Args:
+        theta (float): How much to jitter HED color space,
+         alpha is chosen from a uniform distribution [1-theta, 1+theta]
+         betti is chosen from a uniform distribution [-theta, theta]
+         the jitter formula is **s' = \alpha * s + \betti**
+    """
+
+    def __init__(self, size, near_dim=None):
+        if not isinstance(size, (int, list, tuple)):
+            raise TypeError(
+                "Size should be int or sequence. Got {}".format(type(size)))
+        if isinstance(size, (list, tuple)) and len(size) != 2:
+            raise ValueError(
+                "If size is a sequence, it should have 2 values")
+        self.size = size
+
+        if (not isinstance(near_dim, (int, list, tuple))) and \
+                (near_dim is not None):
+            raise TypeError(
+                "The dimension along which nearest interpolation applied should be int or sequence. Got {}".format(type(near_dim)))
+        if isinstance(near_dim, (list, tuple)) and \
+                (not all(isinstance(dim, int) for dim in near_dim)):
+            raise TypeError(
+                "the value in near_dim should all be integer.")
+        self.near_dim = near_dim
+
+    def __call__(self, img):
+        if self.near_dim is None:
+            out = F.resize(img, self.size)
+        else:
+            lab_msk = torch.zeros(img.shape[0], dtype=torch.bool)
+            lab_msk[self.near_dim] = True
+            # print(lab_msk)
+            out = torch.zeros([img.shape[0],
+                               self.size[0],
+                               self.size[1]]).to(img)
+            out[lab_msk] = F.resize(img[lab_msk],
+                                    self.size,
+                                    F.InterpolationMode.NEAREST)
+            out[~lab_msk] = F.resize(img[~lab_msk],
+                                     self.size)
+        return out
+
+    def __repr__(self):
+        format_string = self.__class__.__name__ + '('
+        format_string += 'near_dim={})'.format(self.near_dim)
         return format_string
 
 
@@ -474,15 +529,33 @@ def initialize_model(model_name,
 
 
 def data_prep(args, tst_size=384):
+    near_dim = None
+    if args.inp == 'i':
+        scrc_in = [0, 1, 2]
+        left_pad = 0
+    elif args.inp == 'im':
+        scrc_in = [0, 1, 2, 4]
+        left_pad = args.scale_factor ** 2
+        near_dim = [0]
+    # elif args.inp == 'm':
+    #     scrc_in = [4]
+
+    if args.couple_label:
+        left_pad += 1
+
+    scrc_out = args.oup
+    if scrc_out == 'cms':
+        n_classes = 4
+
     if args.aug == 'r':
         trn_trans = transforms.Compose([
             # transforms.RandomCrop(args.imagesize),
-            transforms.Resize([args.imagesize, args.imagesize]),
+            ResizeMix([args.imagesize, args.imagesize], near_dim),
             # HEDJitter(0, True),
         ])
     elif args.aug == 'rr':
         trn_trans = transforms.Compose([
-            transforms.Resize([args.imagesize, args.imagesize]),
+            ResizeMix([args.imagesize, args.imagesize], near_dim),
             # HEDJitter(0, True),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
@@ -495,25 +568,9 @@ def data_prep(args, tst_size=384):
         ])
 
     tst_trans = transforms.Compose([
-        transforms.Resize([args.imagesize, args.imagesize]),
+        ResizeMix([args.imagesize, args.imagesize], near_dim),
         # HEDJitter(0, True),
     ])
-
-    if args.inp == 'i':
-        scrc_in = [0, 1, 2]
-        left_pad = 0
-    elif args.inp == 'im':
-        scrc_in = [0, 1, 2, 4]
-        left_pad = args.scale_factor ** 2
-    # elif args.inp == 'm':
-    #     scrc_in = [4]
-
-    if args.couple_label:
-        left_pad += 1
-
-    scrc_out = args.oup
-    if scrc_out == 'cms':
-        n_classes = 4
 
     trn_reg = args.env[:2]
     tst_reg = args.env[-1]

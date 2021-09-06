@@ -152,8 +152,14 @@ class SCRC(Dataset):
             self.imgs = self.imgs[:, scrc_in]
 
         if [0, 1, 2, 4] == scrc_in:
-            print('switch to mask_dim=0')
+            print('switch to mask_dim=0, del mucin=5 and misc=3')
             self.imgs = self.imgs[:, [-1, 0, 1, 2]]
+            _ncls = self.imgs[:, 0]
+            _ncls_idx = (_ncls == 3 / self.n_nuclei) | \
+                (_ncls == 5 / self.n_nuclei)
+            _ncls[_ncls_idx] = 0.
+            self.imgs[:, 0] = _ncls
+            print(torch.unique(self.imgs[:, 0]))
 
     def _proc_lab(self, labs, scrc_out=None):
         if scrc_out is not None:
