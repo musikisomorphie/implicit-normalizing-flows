@@ -16,6 +16,12 @@ import lib.optimizers as optim
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
 from tqdm import tqdm
 
+BERN_id = {1: (0, 0, 255),
+           2: (255, 0, 0),
+           4: (0, 128, 0),
+           3: (255, 0, 255),
+           5: (0, 255, 255)}
+
 # Arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--backend', type=str, default='nccl',
@@ -41,6 +47,7 @@ parser.add_argument('--oup', type=str,
                     choices=['cms'], default='cms')
 parser.add_argument('--couple-label', type=eval,
                     choices=[True, False], default=False)
+parser.add_argument('--right-pad', type=int, default=3)
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 
@@ -161,7 +168,7 @@ ce_meter = utils.RunningAverageMeter(0.97)
 
 def compute_loss(x,
                  model,
-                 zero_pad,
+                 left_pad,
                  beta=1.0,
                  nvals=256):
     bits_per_dim = torch.zeros(1).to(x)
@@ -178,7 +185,7 @@ def compute_loss(x,
 
     if args.task in ['density', 'hybrid']:
         # log p(z)
-        z = z[:, zero_pad:]
+        z = z[:, left_pad:]
         logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
 
         # log p(x)
@@ -204,7 +211,7 @@ def train(args,
           optimizer,
           logger,
           ema,
-          zero_pad):
+          left_pad):
 
     model.train()
 
@@ -237,7 +244,7 @@ def train(args,
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
         bpd, logits, logpz, neg_delta_logp = compute_loss(
-            x, model, zero_pad, beta=beta)
+            x, model, left_pad, beta=beta)
 
         if args.task in ['density', 'hybrid']:
             firmom, secmom = utils.estimator_moments(model)
@@ -318,7 +325,7 @@ def train(args,
                       args.save / 'imgs',
                       args.scale_factor,
                       phase='trn',
-                      zero_pad=zero_pad)
+                      left_pad=left_pad)
 
         del x
         torch.cuda.empty_cache()
@@ -334,7 +341,7 @@ def validate(args,
              phase,
              logger,
              ema=None,
-             zero_pad=0):
+             left_pad=0):
     """
     Evaluates the cross entropy between p_data and p_model.
     """
@@ -356,7 +363,7 @@ def validate(args,
         for i, (x, y) in enumerate(tqdm(dat_loader)):
             x = x.to(device)
             y = y.to(device)
-            bpd, logits, _, _ = compute_loss(x, model, zero_pad)
+            bpd, logits, _, _ = compute_loss(x, model, left_pad)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
@@ -371,7 +378,7 @@ def validate(args,
                           args.save / 'imgs',
                           args.scale_factor,
                           phase='val',
-                          zero_pad=zero_pad)
+                          left_pad=left_pad)
 
     val_time = time.time() - start
 
@@ -394,7 +401,7 @@ def visualize(epoch,
               scale_factor,
               nvals=256,
               phase='trn',
-              zero_pad=0):
+              left_pad=0):
     model.eval()
     real_imgs = real_imgs[:32]
 
@@ -404,10 +411,10 @@ def visualize(epoch,
         recon_imgs = model(recon_z, inverse=True)
 
         # random samples
-        if zero_pad:
-            fake_imgs = model(recon_z[:, :zero_pad], inverse=True)
+        if left_pad:
+            fake_imgs = model(recon_z[:, :left_pad], inverse=True)
             print('mask_in_out diff {:4f}'.format(
-                torch.mean(real_imgs[:, :zero_pad] - recon_z[:, :zero_pad])))
+                torch.mean(real_imgs[:, :left_pad] - recon_z[:, :left_pad])))
         else:
             fake_imgs = model(torch.ones(
                 [real_imgs.shape[0]]).to(real_imgs), inverse=True)
@@ -418,9 +425,18 @@ def visualize(epoch,
         #     torch.mean(real_imgs[:, -4:] - recon_imgs[:, -4:])))
         # TODO couple label is a potential bug
 
-        imgs = torch.cat([real_imgs, fake_imgs, recon_imgs], 0)
-        imgs = imgs[:, zero_pad:]
+        imgs = torch.cat([real_imgs, recon_imgs, fake_imgs], 0)
+        imgs = imgs[:, left_pad:]
         imgs = torch.pixel_shuffle(imgs, scale_factor)
+        if left_pad:
+            ncls = torch.pixel_shuffle(real_imgs[:, :left_pad],
+                                       scale_factor)
+            imgs -= torch.cat((ncls, ncls, ncls), dim=0)
+            faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
+            ncls = ncls.squeeze()
+            for i in range(1, 6):
+                faks[ncls == i/5.] = torch.tensor(BERN_id[i]).to(faks)
+            imgs = torch.cat([imgs, faks.permute(0, 3, 1, 2)], 0)
         # imgs = imgs[:, -3:]
 
         filename = pathlib.Path(img_path) / \
@@ -432,16 +448,17 @@ def visualize(epoch,
 
 def main(args):
     exp_config = ('{}_{}_{}_{}_{}_'
-                  '{}_{}_{}_{}_{}').format(args.flow,
-                                           args.classifier,
-                                           args.scale_factor,
-                                           args.env,
-                                           args.aug,
-                                           args.inp,
-                                           args.oup,
-                                           args.couple_label,
-                                           args.imagesize,
-                                           args.batchsize)
+                  '{}_{}_{}_{}_{}_{}').format(args.flow,
+                                              args.classifier,
+                                              args.scale_factor,
+                                              args.env,
+                                              args.aug,
+                                              args.inp,
+                                              args.oup,
+                                              args.couple_label,
+                                              args.right_pad,
+                                              args.imagesize,
+                                              args.batchsize)
     args.save = pathlib.Path(args.save) / exp_config
     (args.save / 'imgs').mkdir(parents=True, exist_ok=True)
     # logger
@@ -469,14 +486,14 @@ def main(args):
         logger.info('WARNING: Using device {}'.format(device))
 
     logger.info('Loading dataset {}'.format(args.data))
-    trn_loader, tst_loader, n_classes, input_size, zero_pad = utils.data_prep(
+    trn_loader, tst_loader, n_classes, input_size, left_pad, right_pad = utils.data_prep(
         args)
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
     input_chn = input_size[1] - 1 if args.couple_label else input_size[1]
     classifier = utils.InferNet(args.classifier, n_classes, input_chn)
-    model = utils.model_prep(args, input_size, classifier, zero_pad)
+    model = utils.model_prep(args, input_size, classifier, left_pad, right_pad)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     model, optimizer, _, __ = deepspeed.initialize(args=args,
@@ -505,7 +522,7 @@ def main(args):
               optimizer,
               logger,
               ema,
-              zero_pad)
+              left_pad)
 
         lipschitz_constants.append(utils.get_lipschitz_constants(model))
         ords.append(utils.get_ords(model))
@@ -522,7 +539,7 @@ def main(args):
         #                    'VAL',
         #                    logger,
         #                    ema=ema if args.ema_val else None,
-        #                    zero_pad=zero_pad)
+        #                    left_pad=left_pad)
 
         if args.scheduler and scheduler is not None:
             scheduler.step()

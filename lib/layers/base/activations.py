@@ -76,17 +76,27 @@ class Swish(nn.Module):
 
 
 class PadZero(nn.Module):
-    def __init__(self, pad_dim):
+    def __init__(self, left_pad=0, right_pad=0):
         super(PadZero, self).__init__()
-        self.pad_dim = pad_dim
+        assert left_pad >= 0 and right_pad >= 0
+        assert isinstance(left_pad, int) and isinstance(right_pad, int)
+        self.left_pad = left_pad
+        self.right_pad = right_pad
 
     def forward(self, x):
         pad_shape = list(x.shape)
-        # print('pad_shape', pad_shape)
-        pad_shape[1] = self.pad_dim
-        x_pad = torch.zeros(pad_shape).to(x)
-        return torch.cat((x_pad, x), dim=1)
+        if self.left_pad:
+            pad_shape[1] = self.left_pad
+            x_left = torch.zeros(pad_shape).to(x)
+            x = torch.cat((x_left, x), dim=1)
 
+        if self.right_pad:
+            pad_shape[1] = self.right_pad
+            x_right = torch.zeros(pad_shape).to(x)
+            x = torch.cat((x, x_right), dim=1)
+            
+        # print('pad_shape', pad_shape)
+        return x
 
 if __name__ == '__main__':
 

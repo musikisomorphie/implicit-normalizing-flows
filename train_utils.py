@@ -501,15 +501,15 @@ def data_prep(args, tst_size=384):
 
     if args.inp == 'i':
         scrc_in = [0, 1, 2]
-        zero_pad = 0
+        left_pad = 0
     elif args.inp == 'im':
         scrc_in = [0, 1, 2, 4]
-        zero_pad = args.scale_factor ** 2
+        left_pad = args.scale_factor ** 2
     # elif args.inp == 'm':
     #     scrc_in = [4]
 
     if args.couple_label:
-        zero_pad += 1
+        left_pad += 1
 
     scrc_out = args.oup
     if scrc_out == 'cms':
@@ -564,10 +564,10 @@ def data_prep(args, tst_size=384):
     if args.couple_label:
         input_size[1] += 1
 
-    return trn_loader, tst_loader, n_classes, input_size, zero_pad
+    return trn_loader, tst_loader, n_classes, input_size, left_pad, args.right_pad
 
 
-def model_prep(args, input_size, classifier, zero_pad):
+def model_prep(args, input_size, classifier, left_pad, righ_pad):
     if args.flow == 'imflow':
         norm_flow = ImplicitFlow
     elif args.flow == 'reflow':
@@ -607,7 +607,8 @@ def model_prep(args, input_size, classifier, zero_pad):
         learn_p=args.learn_p,
         classification=args.task in ['classification', 'hybrid'],
         classification_hdim=args.cdim,
-        zero_pad=zero_pad
+        left_pad=left_pad,
+        right_pad=righ_pad
     )
 
     return model

@@ -14,7 +14,7 @@ ACT_FNS = {
     'relu': lambda b: nn.ReLU(inplace=b),
     'sin': lambda b: base_layers.Sin(),
     'zero': lambda b: base_layers.Zero(),
-    'zeropad': lambda b: base_layers.PadZero(pad_dim=b),
+    'zeropad': lambda l, r: base_layers.PadZero(l, r),
 }
 
 
@@ -56,7 +56,8 @@ class ImplicitFlow(nn.Module):
         classification=False,
         classification_hdim=64,
         block_type='imblock',
-        zero_pad=0
+        left_pad=0,
+        right_pad=0
     ):
         super(ImplicitFlow, self).__init__()
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -91,7 +92,8 @@ class ImplicitFlow(nn.Module):
         self.classification = classification
         self.classification_hdim = classification_hdim
         self.block_type = block_type
-        self.zero_pad = zero_pad
+        self.left_pad = left_pad
+        self.right_pad = right_pad
 
         if not self.n_scale > 0:
             raise ValueError(
@@ -145,7 +147,8 @@ class ImplicitFlow(nn.Module):
                     grad_in_forward=self.grad_in_forward,
                     first_resblock=self.first_resblock and (i == 0),
                     learn_p=self.learn_p,
-                    zero_pad=self.zero_pad
+                    left_pad=self.left_pad,
+                    right_pad=self.right_pad
                 )
             )
             c, h, w = c * 2 if self.factor_out else c * 4, h // 2, w // 2
@@ -220,7 +223,7 @@ class ImplicitFlow(nn.Module):
                 x = self.transforms[idx].forward(x, restore=restore)
             if self.factor_out and (idx < len(self.transforms) - 1):
                 d = x.size(1) // 2
-                f, x = x[:, :d], x[:, d:] + x[:, :d]
+                f, x = x[:, :d], x[:, d:]
                 out.append(f)
 
         out.append(x)
@@ -246,13 +249,13 @@ class ImplicitFlow(nn.Module):
             if logpz is None:
                 z_prev = self.transforms[-1].inverse(zs[-1])
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((zs[idx], z_prev - zs[idx]), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
                     z_prev = self.transforms[idx].inverse(z_prev)
                 return z_prev
             else:
                 z_prev, logpz = self.transforms[-1].inverse(zs[-1], logpz)
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((zs[idx], z_prev - zs[idx]), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
                     z_prev, logpz = self.transforms[idx].inverse(z_prev, logpz)
                 return z_prev, logpz
         else:
@@ -291,7 +294,7 @@ class StackedImplicitBlocks(layers.SequentialFlow):
         kernels='3-1-3',
         activation_fn='elu',
         fc_end=True,
-        fc_nblocks=2,
+        fc_nblocks=4,
         fc_idim=128,
         n_exact_terms=0,
         preact=False,
@@ -299,7 +302,8 @@ class StackedImplicitBlocks(layers.SequentialFlow):
         grad_in_forward=False,
         first_resblock=True,
         learn_p=False,
-        zero_pad=0
+        left_pad=0,
+        right_pad=0
     ):
 
         chain = []
@@ -317,15 +321,15 @@ class StackedImplicitBlocks(layers.SequentialFlow):
         def _lipschitz_layer(fc):
             return base_layers.get_linear if fc else base_layers.get_conv2d
 
-        def _actnorm(size, fc, zero_pad=0):
-            # TODO fc is not compatiable with zero_pad
+        def _actnorm(size, fc, left_pad=0, right_pad=0):
+            # TODO fc is not compatiable with padding
             if fc:
                 return FCWrapper(layers.ActNorm1d(size[0] * size[1] * size[2]))
             else:
-                return layers.ActNorm2d(size[0], zero_pad)
+                return layers.ActNorm2d(size[0], left_pad, right_pad)
 
-        def _quadratic_layer(initial_size, fc, zero_pad=0):
-            # TODO fc is not compatible with zero_grad
+        def _quadratic_layer(initial_size, fc, left_pad=0, right_pad=0):
+            # TODO fc is not compatible with padding
             if fc:
                 c, h, w = initial_size
                 dim = c * h * w
@@ -333,8 +337,8 @@ class StackedImplicitBlocks(layers.SequentialFlow):
             else:
                 return layers.InvertibleConv2d(initial_size[0])
 
-        def _resblock(initial_size, fc, idim, first_resblock, n_block, zero_pad=0):
-            # TODO fc is not compatible with zero_grad
+        def _resblock(initial_size, fc, idim, first_resblock, n_block, left_pad=0, right_pad=0):
+            # TODO fc is not compatible with padding
             if fc:
                 return layers.imBlock(
                     FCNet(
@@ -417,16 +421,15 @@ class StackedImplicitBlocks(layers.SequentialFlow):
 
                     nnet.append(
                         _lipschitz_layer(fc)(
-                            idim, initial_size[0] - zero_pad, ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
+                            idim, initial_size[0] - left_pad - right_pad, ks[-1], 1, ks[-1] // 2, coeff=coeff, n_iterations=n_lipschitz_iters,
                             domain=_domains[-1], codomain=_codomains[-1], atol=sn_atol, rtol=sn_rtol
                         )
                     )
                     if batchnorm:
                         nnet.append(layers.MovingBatchNorm2d(
-                            initial_size[0] - zero_pad))
+                            initial_size[0] - left_pad - right_pad))
 
-                    if zero_pad:
-                        nnet.append(ACT_FNS['zeropad'](zero_pad))
+                    nnet.append(ACT_FNS['zeropad'](left_pad, right_pad))
                     return nn.Sequential(*nnet)
                 return layers.imBlock(
                     build_nnet(),
@@ -439,25 +442,26 @@ class StackedImplicitBlocks(layers.SequentialFlow):
                     grad_in_forward=grad_in_forward,
                 )
 
-        if not first_resblock and init_layer is not None:
-            chain.append(init_layer)
+        # if not first_resblock and init_layer is not None:
+        #     chain.append(init_layer)
         if first_resblock and actnorm:
-            chain.append(_actnorm(initial_size, fc, zero_pad))
+            chain.append(_actnorm(initial_size, fc, left_pad, right_pad))
         if first_resblock and fc_actnorm:
-            chain.append(_actnorm(initial_size, True, zero_pad))
+            chain.append(_actnorm(initial_size, True, left_pad, right_pad))
 
         if squeeze:
             c, h, w = initial_size
-            z_pad = zero_pad if first_resblock else 0
+            l_pad = left_pad if first_resblock else 0
             for i in range(n_blocks):
                 if quadratic:
                     chain.append(_quadratic_layer(initial_size, fc))
                 chain.append(_resblock(initial_size, fc, idim,
-                                       first_resblock, i, z_pad))
+                                       first_resblock, i, l_pad, right_pad))
                 if actnorm:
-                    chain.append(_actnorm(initial_size, fc, z_pad))
+                    chain.append(_actnorm(initial_size, fc, l_pad, right_pad))
                 if fc_actnorm:
-                    chain.append(_actnorm(initial_size, True, z_pad))
+                    chain.append(
+                        _actnorm(initial_size, True, l_pad, right_pad))
             chain.append(layers.SqueezeLayer(2))
         else:
             # TODO: last layer also need to append zero

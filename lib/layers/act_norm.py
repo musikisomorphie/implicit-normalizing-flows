@@ -7,11 +7,15 @@ __all__ = ['ActNorm1d', 'ActNorm2d']
 
 class ActNormNd(nn.Module):
 
-    def __init__(self, num_features, zero_pad=0, eps=1e-12):
+    def __init__(self, num_features, left_pad=0, right_pad=0, eps=1e-12):
         super(ActNormNd, self).__init__()
-        assert zero_pad >= 0
-        self.num_features = num_features - zero_pad
-        self.zero_pad = zero_pad
+        assert left_pad >= 0 and right_pad >= 0
+        assert isinstance(left_pad, int) and isinstance(right_pad, int)
+        assert num_features - left_pad - right_pad > 0
+
+        self.num_features = num_features - left_pad - right_pad
+        self.left_pad = left_pad
+        self.right_pad = right_pad
         self.eps = eps
 
         self.weight = Parameter(torch.Tensor(self.num_features))
@@ -24,8 +28,10 @@ class ActNormNd(nn.Module):
         raise NotImplementedError
 
     def forward(self, x, logpx=None, restore=None):
-        if self.zero_pad:
-            x_pad, x = x[:, :self.zero_pad], x[:, self.zero_pad:]
+        if self.left_pad:
+            x_left, x = x[:, :self.left_pad], x[:, self.left_pad:]
+        if self.right_pad:
+            x, x_right = x[:, :-self.right_pad], x[:, -self.right_pad:]
 
         c = x.size(1)
 
@@ -48,31 +54,42 @@ class ActNormNd(nn.Module):
         weight = self.weight.view(*self.shape).expand_as(x)
 
         y = (x + bias.to(x)) * torch.exp(weight.to(x))
-        if self.zero_pad:
-            y = torch.cat((x_pad, y), dim=1)
+        if logpx is not None:
+            logpx -= self._logdetgrad(x)
+
+        if self.left_pad:
+            y = torch.cat((x_left, y), dim=1)
+        if self.right_pad:
+            y = torch.cat((y, x_right), dim=1)
 
         if logpx is None:
             return y
         else:
-            return y, logpx - self._logdetgrad(x)
+            return y, logpx
 
     def inverse(self, y, logpy=None):
         assert self.initialized
-        if self.zero_pad:
-            y_pad, y = y[:, :self.zero_pad], y[:, self.zero_pad:]
+        if self.left_pad:
+            y_left, y = y[:, :self.left_pad], y[:, self.left_pad:]
+        if self.right_pad:
+            y, y_right = y[:, :-self.right_pad], y[:, -self.right_pad:]
 
         bias = self.bias.view(*self.shape).expand_as(y)
         weight = self.weight.view(*self.shape).expand_as(y)
 
         x = y * torch.exp(-weight) - bias
+        if logpy is not None:
+            logpy += self._logdetgrad(x)
 
-        if self.zero_pad:
-            x = torch.cat((y_pad, x), dim=1)
+        if self.left_pad:
+            x = torch.cat((y_left, x), dim=1)
+        if self.right_pad:
+            x = torch.cat((x, y_right), dim=1)
 
         if logpy is None:
             return x
         else:
-            return x, logpy + self._logdetgrad(x[:, self.zero_pad:])
+            return x, logpy
 
     def _logdetgrad(self, x):
         return self.weight.view(*self.shape).expand(*x.shape).contiguous().view(x.shape[0], -1).sum(1, keepdim=True)
