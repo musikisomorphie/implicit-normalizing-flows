@@ -445,18 +445,21 @@ def visualize(epoch,
         imgs = torch.pixel_shuffle(imgs, scale_factor)
 
         if left_pad:
+            ncls_gt = real_imgs[:, :left_pad].clone()
+            ncls_gt = torch.pixel_shuffle(ncls_gt,
+                                          scale_factor)
+            imgs[:ncls.shape[0]] -= ncls_gt
+            imgs[ncls.shape[0]: 2 * ncls.shape[0]] -= ncls_gt
+            imgs[-ncls.shape[0]:] -= ncls_gt
+            ncls_gt = torch.round(ncls_gt * 5.)
+            faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
+            ncls_gt = ncls_gt.squeeze()
+
             ncls = torch.pixel_shuffle(ncls,
                                        scale_factor)
             ncls = torch.round(ncls * 5.)
             faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
             ncls = ncls.squeeze()
-
-            ncls_gt = real_imgs[:, :left_pad].clone()
-            ncls_gt = torch.pixel_shuffle(ncls_gt,
-                                          scale_factor)
-            ncls_gt = torch.round(ncls_gt * 5.)
-            faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
-            ncls_gt = ncls_gt.squeeze()
 
             msk_diff = (ncls_gt - ncls).abs().max()
             print('diff after pixelshuffle {:8f}'.format(msk_diff))

@@ -283,7 +283,8 @@ class ResizeMix(object):
                                     self.size,
                                     F.InterpolationMode.NEAREST)
             out[~lab_msk] = F.resize(img[~lab_msk],
-                                     self.size)
+                                     self.size,
+                                     F.InterpolationMode.NEAREST)
         return out
 
     def __repr__(self):

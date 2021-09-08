@@ -159,6 +159,7 @@ class SCRC(Dataset):
                 (_ncls == 5 / self.n_nuclei)
             _ncls[_ncls_idx] = 0.
             self.imgs[:, 0] = _ncls
+            self.imgs[:, 1:] += _ncls.unsqueeze(1)
             print(torch.unique(self.imgs[:, 0]))
 
     def _proc_lab(self, labs, scrc_out=None):
