@@ -17,20 +17,72 @@ import lib.datasets as datasets
 import lib.layers as layers
 import lib.layers.base as base_layers
 
+from wilds import get_dataset
+from wilds.common.data_loaders import get_train_loader
+
+
+def initialize_rxrx1_transform(is_training):
+    def standardize(x: torch.Tensor) -> torch.Tensor:
+        mean = x.mean(dim=(1, 2))
+        std = x.std(dim=(1, 2))
+        std[std == 0.] = 1.
+        return TF.normalize(x, mean, std)
+    t_standardize = transforms.Lambda(lambda x: standardize(x))
+
+    angles = [0, 90, 180, 270]
+
+    def random_rotation(x: torch.Tensor) -> torch.Tensor:
+        angle = angles[torch.randint(low=0, high=len(angles), size=(1,))]
+        if angle > 0:
+            x = TF.rotate(x, angle)
+        return x
+    t_random_rotation = transforms.Lambda(lambda x: random_rotation(x))
+
+    if is_training:
+        transforms_ls = [
+            t_random_rotation,
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            # t_standardize,
+        ]
+    else:
+        transforms_ls = [
+            transforms.ToTensor(),
+            # t_standardize,
+        ]
+    transform = transforms.Compose(transforms_ls)
+    return transform
+
+
+def initialize_scrc_transform(is_training):
+    angles = [0, 90, 180, 270]
+
+    def random_rotation(x: torch.Tensor) -> torch.Tensor:
+        angle = angles[torch.randint(low=0, high=len(angles), size=(1,))]
+        if angle > 0:
+            x = TF.rotate(x, angle)
+        return x
+    t_random_rotation = transforms.Lambda(lambda x: random_rotation(x))
+
+    if is_training:
+        transforms_ls = [
+            t_random_rotation,
+            transforms.RandomHorizontalFlip(),
+        ]
+        transform = transforms.Compose(transforms_ls)
+        return transform
+    else:
+        return None
+
 
 class InferNet(nn.Module):
     def __init__(self,
                  model_name,
                  num_classes,
                  chn_dim,
-                 scale_factor=2,
                  use_pretrained=False):
         super(InferNet, self).__init__()
 
-        assert chn_dim % (scale_factor ** 2) == 0
-        self.pixel_shuffle = nn.PixelShuffle(scale_factor)
-
-        chn_dim //= (scale_factor ** 2)
         model_name = model_name.lower()
         if model_name == "resnet":
             """ Resnet50
@@ -69,7 +121,6 @@ class InferNet(nn.Module):
         self.backbone = model_ft
 
     def forward(self, x):
-        x = self.pixel_shuffle(x)
         x = self.backbone(x)
         return x
 
@@ -529,100 +580,55 @@ def initialize_model(model_name,
     return model_ft
 
 
-def data_prep(args, tst_size=384):
-    near_dim = None
-    if args.inp == 'i':
-        scrc_in = [0, 1, 2]
-        left_pad = 0
-    elif args.inp == 'im':
-        scrc_in = [0, 1, 2, 4]
-        left_pad = args.scale_factor ** 2
-        near_dim = [0]
-    # elif args.inp == 'm':
-    #     scrc_in = [4]
+def data_prep(args):
+    if args.data == 'rxrx1':
+        trn_trans = initialize_rxrx1_transform(True)
+        val_trans = initialize_rxrx1_transform(False)
+        tst_trans = initialize_rxrx1_transform(False)
+        dataset_kwargs = None
+        split_scheme = 'official'
+    elif args.data == 'scrc':
+        trn_trans = initialize_scrc_transform(True)
+        val_trans = initialize_scrc_transform(False)
+        tst_trans = initialize_scrc_transform(False)
+        if args.inp == 'i':
+            img_chn = [0, 1, 2]
+        elif args.inp == 'im':
+            img_chn = [0, 1, 2, 3]
+        elif args.inp == 'm':
+            img_chn = [4]
+        dataset_kwargs = {'img_chn': img_chn}
+        split_scheme = args.env
 
-    if args.couple_label:
-        left_pad += 1
+    loader_kwargs = {'num_workers': args.nworkers}
 
-    scrc_out = args.oup
-    if scrc_out == 'cms':
-        n_classes = 4
+    dataset = get_dataset(dataset=args.dataset,
+                          root_dir=pathlib.Path(args.dataroot),
+                          split_scheme=split_scheme,
+                          dataset_kwargs=dataset_kwargs)
+    n_classes = dataset.n_classes
 
-    if args.aug == 'r':
-        trn_trans = transforms.Compose([
-            # transforms.RandomCrop(args.imagesize),
-            ResizeMix([args.imagesize, args.imagesize], near_dim),
-            # HEDJitter(0, True),
-        ])
-    elif args.aug == 'rr':
-        trn_trans = transforms.Compose([
-            ResizeMix([args.imagesize, args.imagesize], near_dim),
-            # HEDJitter(0, True),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomVerticalFlip(),
-            transforms.RandomApply(
-                [transforms.RandomRotation((90, 90))], p=0.5),
-            transforms.RandomApply(
-                [transforms.RandomRotation((90, 90))], p=0.5),
-            transforms.RandomApply(
-                [transforms.RandomRotation((90, 90))], p=0.5),
-        ])
+    trn_data = dataset.get_subset('train',
+                                  transform=trn_trans)
+    trn_loader = get_train_loader('standard',
+                                  trn_data,
+                                  batch_size=args.batchsize,
+                                  loader_kwargs=loader_kwargs)
 
-    tst_trans = transforms.Compose([
-        ResizeMix([args.imagesize, args.imagesize], near_dim),
-        # HEDJitter(0, True),
-    ])
+    val_data = dataset.get_subset('val',
+                                  transform=val_trans)
+    val_loader = get_eval_loader('standard',
+                                 val_data,
+                                 batch_size=args.eval_batchsize)
 
-    trn_reg = args.env[:2]
-    tst_reg = args.env[-1]
+    tst_data = dataset.get_subset('test',
+                                  transform=val_trans)
+    tst_loader = get_eval_loader('standard',
+                                 tst_data,
+                                 batch_size=args.eval_batchsize)
 
-    dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_circle_{}.pt')
-    trn_data, trn_loader = list(), list()
-    for trn in trn_reg:
-        trn_data.append(datasets.SCRC(scale_factor=args.scale_factor,
-                                      n_classes=n_classes,
-                                      couple_label=args.couple_label,
-                                      scrc_path=dat_path.format(trn),
-                                      scrc_in=scrc_in,
-                                      scrc_out=scrc_out,
-                                      transforms=trn_trans))
-        trn_loader.append(torch.utils.data.DataLoader(trn_data[-1],
-                                                      batch_size=args.batchsize,
-                                                      shuffle=True,
-                                                      num_workers=args.nworkers,
-                                                      drop_last=True))
-
-    tst_path = dat_path.format(tst_reg)
-    tst_len = torch.load(str(tst_path))[0].shape[0]
-    print('test data size {}'.format(tst_len))
-    tst_idx = np.random.rand(tst_len).argsort()
-    tst_data, tst_loader = list(), list()
-    for i in range(1):
-        # tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
-        tst_sub_idx = tst_idx
-        tst_data.append(datasets.SCRC(scale_factor=args.scale_factor,
-                                      n_classes=n_classes,
-                                      couple_label=args.couple_label,
-                                      scrc_path=tst_path,
-                                      scrc_idx=tst_sub_idx,
-                                      scrc_in=scrc_in,
-                                      scrc_out=scrc_out,
-                                      transforms=tst_trans))
-        tst_loader.append(torch.utils.data.DataLoader(tst_data[-1],
-                                                      batch_size=args.val_batchsize,
-                                                      shuffle=False,
-                                                      num_workers=args.nworkers,
-                                                      drop_last=True))
-
-    input_size = [args.batchsize,
-                  len(scrc_in) * (args.scale_factor ** 2),
-                  args.imagesize // args.scale_factor,
-                  args.imagesize // args.scale_factor]
-
-    if args.couple_label:
-        input_size[1] += 1
-
-    return trn_loader, tst_loader, n_classes, input_size, left_pad, args.right_pad
+    data_loader = [trn_loader, val_loader, tst_loader]
+    return data_loader, n_classes, len(img_chn)
 
 
 def model_prep(args, input_size, classifier, left_pad, righ_pad):

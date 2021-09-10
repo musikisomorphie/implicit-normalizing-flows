@@ -129,7 +129,7 @@ parser.add_argument('--warmup-iters', type=int, default=1000)
 parser.add_argument('--annealing-iters', type=int, default=0)
 parser.add_argument('--save', help='directory to save results',
                     type=str, default='experiment1')
-parser.add_argument('--val-batchsize',
+parser.add_argument('--eval-batchsize',
                     help='minibatch size', type=int, default=200)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--ema-val', type=eval,
@@ -357,7 +357,7 @@ for i in range(1):
                                   transforms=tst_trans))
 
     tst_loader.append(torch.utils.data.DataLoader(tst_data[-1],
-                                                  batch_size=args.val_batchsize,
+                                                  batch_size=args.eval_batchsize,
                                                   shuffle=False,
                                                   num_workers=args.nworkers,
                                                   drop_last=True))
