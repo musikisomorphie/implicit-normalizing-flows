@@ -606,7 +606,7 @@ def data_prep(args):
                           root_dir=pathlib.Path(args.dataroot),
                           split_scheme=split_scheme,
                           dataset_kwargs=dataset_kwargs)
-    n_classes = dataset.n_classes
+    n_classes_y = dataset.n_classes
 
     trn_data = dataset.get_subset('train',
                                   transform=trn_trans)
@@ -628,17 +628,29 @@ def data_prep(args):
                                  batch_size=args.eval_batchsize)
 
     data_loader = [trn_loader, val_loader, tst_loader]
-    return data_loader, n_classes, len(img_chn)
+    input_size = [args.batchsize,
+                  len(img_chn),
+                  args.imagesize,
+                  args.imagesize]
+
+    return data_loader, n_classes_y, input_size
 
 
-def model_prep(args, input_size, classifier, left_pad, righ_pad):
+def model_prep(args, input_size, classifier):
     if args.flow == 'imflow':
         norm_flow = ImplicitFlow
     elif args.flow == 'reflow':
         norm_flow = ResidualFlow
 
+    if args.data == 'scrc' and args.inp == 'im':
+        _left_pad = args.shuffle_factor ** 2
+    else:
+        _left_pad = 0
+
     model = norm_flow(
         classifier=classifier,
+        scale_factor=args.scale_factor,
+        shuffle_factor=args.shuffle_factor,
         couple_label=args.couple_label,
         input_size=input_size,
         n_blocks=list(map(int, args.nblocks.split('-'))),
@@ -671,9 +683,7 @@ def model_prep(args, input_size, classifier, left_pad, righ_pad):
         learn_p=args.learn_p,
         classification=args.task in ['classification', 'hybrid'],
         classification_hdim=args.cdim,
-        left_pad=left_pad,
-        right_pad=righ_pad
-    )
+        left_pad=_left_pad)
 
     return model
 

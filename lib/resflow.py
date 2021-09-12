@@ -23,13 +23,14 @@ class ResidualFlow(nn.Module):
     def __init__(
         self,
         classifier,
+        scale_factor,
+        shuffle_factor,
         couple_label,
         input_size,
         n_blocks=[16, 16],
         intermediate_dim=64,
         factor_out=True,
         quadratic=False,
-        init_layer=None,
         actnorm=False,
         fc_actnorm=False,
         batchnorm=False,
@@ -60,6 +61,14 @@ class ResidualFlow(nn.Module):
         right_pad=0
     ):
         super(ResidualFlow, self).__init__()
+        if self.classification:
+            self.classifier = classifier
+        self.scale_factor = scale_factor
+        self.shuffle_factor = shuffle_factor
+        self.couple_label = couple_label
+        self.init_layer = None
+        input_size = self._get_input_size(input_size)
+
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
         self.n_blocks = n_blocks
         self.intermediate_dim = intermediate_dim
@@ -103,13 +112,39 @@ class ResidualFlow(nn.Module):
 
         self.dims = [o[1:] for o in self.calc_output_size(input_size)]
 
-        if self.classification:
-            self.classifier = classifier
-
-        self.couple_label = couple_label
-
         self.fixed_z = utils.standard_normal_sample(
             [input_size[0] * 2, np.prod(input_size[1:])])
+
+    def _get_input_size(self, input_size):
+        if self.scale_factor != 1:
+            input_size = [input_size[0],
+                          input_size[1],
+                          int(input_size[2] * scale_factor),
+                          int(input_size[3] * scale_factor)]
+
+        if self.shuffle_factor != 1:
+            input_size = [input_size[0],
+                          input_size[1] * (shuffle_factor ** 2),
+                          input_size[2] // shuffle_factor,
+                          input_size[3] // shuffle_factor]
+
+        if self.couple_label:
+            input_size[1] += 1
+
+        return input_size
+
+    def _get_input(self, x, y):
+        if self.scale_factor != 1:
+            x = F.interpolate(x, scale_factor=self.scale_factor)
+        if self.shuffle_factor != 1:
+            x = torch.pixel_shuffle(x, self.shuffle_factor)
+        if self.couple_label:
+            x = torch.cat([x,
+                           y * torch.ones([x.shape[0],
+                                           1,
+                                           x.shape[2],
+                                           x.shape[3]]).to(y)], 1)
+        return x
 
     def _build_net(self, input_size):
         _, c, h, w = input_size
@@ -179,12 +214,7 @@ class ResidualFlow(nn.Module):
                 output_sizes.append((n, c, h, w))
         return tuple(output_sizes)
 
-    # def build_classifier(self, chn_dim):
-    #     self.classifier = utils.initialize_model(self.model_name,
-    #                                              self.n_classes,
-    #                                              chn_dim)
-
-    def forward(self, x, logpx=None, inverse=False, classify=False, restore=False):
+    def forward(self, x, y=None, logpx=None, inverse=False, classify=False, restore=False):
         if inverse:
             assert torch.is_tensor(x)
             if len(x.shape) == 1:
@@ -195,24 +225,12 @@ class ResidualFlow(nn.Module):
                 assert self.fixed_z.shape[0] >= x.shape[0]
                 x = torch.cat((x,
                                self.fixed_z[:x.shape[0], :-x.shape[1]].to(x)), dim=1)
-            #     fixed_z = input.view(-1, *self.trans_size[1:])
-            # else:
-            #     assert input.shape[0] == 1
-            #     if input:
-            #         fixed_z = self.fixed_z
-            #     else:
-            #         fixed_z = utils.standard_normal_sample(self.trans_size)
-
-            # out = self.inverse(self.fixed_z.to(input), None)
-            # out = torch.pixel_shuffle(out[:, :-1], self.scale_factor)
-            # return out
             return self.inverse(x, None)
 
         if classify:
-            if self.couple_label:
-                logits = self.classifier(x[:, 1:])
-            else:
-                logits = self.classifier(x)
+            logits = self.classifier(x)
+
+        x = self._get_input(x, y)
 
         out = []
         for idx in range(len(self.transforms)):
@@ -223,7 +241,7 @@ class ResidualFlow(nn.Module):
                 x = self.transforms[idx].forward(x, restore=restore)
             if self.factor_out and (idx < len(self.transforms) - 1):
                 d = x.size(1) // 2
-                f, x = x[:, :d], x[:, d:] + x[:, :d]
+                f, x = x[:, :d], x[:, d:]
                 out.append(f)
 
         out.append(x)
@@ -249,13 +267,13 @@ class ResidualFlow(nn.Module):
             if logpz is None:
                 z_prev = self.transforms[-1].inverse(zs[-1])
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((zs[idx], z_prev - zs[idx]), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
                     z_prev = self.transforms[idx].inverse(z_prev)
                 return z_prev
             else:
                 z_prev, logpz = self.transforms[-1].inverse(zs[-1], logpz)
                 for idx in range(len(self.transforms) - 2, -1, -1):
-                    z_prev = torch.cat((zs[idx], z_prev - zs[idx]), dim=1)
+                    z_prev = torch.cat((zs[idx], z_prev), dim=1)
                     z_prev, logpz = self.transforms[idx].inverse(z_prev, logpz)
                 return z_prev, logpz
         else:
@@ -425,7 +443,7 @@ class StackediResBlocks(layers.SequentialFlow):
                     grad_in_forward=grad_in_forward,
                 )
 
-        # if not first_resblock and init_layer is not None:
+        # if first_resblock and init_layer is not None:
         #     chain.append(init_layer)
         if first_resblock and actnorm:
             chain.append(_actnorm(initial_size, fc, left_pad, right_pad))

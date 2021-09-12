@@ -37,7 +37,7 @@ parser.add_argument('--flow', type=str, default='reflow',
                     choices=['reflow', 'imflow'])
 parser.add_argument('--classifier', type=str, default='resnet',
                     choices=['resnet', 'densenet'])
-parser.add_argument('--scale-factor', type=int)
+parser.add_argument('--shuffle-factor', type=int)
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--aug', type=str,
@@ -323,7 +323,7 @@ tst_reg = args.env[-1]
 dat_path = str(pathlib.Path(args.dataroot) / 'scrc_symm_{}.pt')
 trn_data, trn_loader = list(), list()
 for trn in trn_reg:
-    trn_data.append(datasets.SCRC(scale_factor=args.scale_factor,
+    trn_data.append(datasets.SCRC(shuffle_factor=args.shuffle_factor,
                                   n_classes=n_classes,
                                   couple_label=args.couple_label,
                                   scrc_path=dat_path.format(trn),
@@ -346,7 +346,7 @@ tst_data, tst_loader = list(), list()
 for i in range(1):
     # tst_sub_idx = tst_idx[:tst_size] if i == 0 else tst_idx[tst_size:]
     tst_sub_idx = tst_idx
-    tst_data.append(datasets.SCRC(scale_factor=args.scale_factor,
+    tst_data.append(datasets.SCRC(shuffle_factor=args.shuffle_factor,
                                   n_classes=n_classes,
                                   couple_label=args.couple_label,
                                   scrc_path=tst_path,
@@ -368,8 +368,8 @@ input_size = (args.batchsize, len(scrc_in),
 
 model = utils.InferNet(args.classifier,
                        n_classes,
-                       input_size[1] * (args.scale_factor ** 2),
-                       scale_factor=1).to(device)
+                       input_size[1] * (args.shuffle_factor ** 2),
+                       shuffle_factor=1).to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 criterion = torch.nn.CrossEntropyLoss()
 
@@ -377,7 +377,7 @@ criterion = torch.nn.CrossEntropyLoss()
 exp_config = ('{}_{}_{}_{}_{}_'
               '{}_{}_{}_{}_{}').format(args.flow,
                                        args.classifier,
-                                       args.scale_factor,
+                                       args.shuffle_factor,
                                        args.env,
                                        args.aug,
                                        args.inp,

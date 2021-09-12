@@ -36,7 +36,7 @@ parser.add_argument('--flow', type=str, default='reflow',
                     choices=['reflow', 'imflow'])
 parser.add_argument('--classifier', type=str, default='resnet',
                     choices=['resnet', 'densenet'])
-parser.add_argument('--scale-factor', type=int)
+parser.add_argument('--shuffle-factor', type=int)
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--aug', type=str,
@@ -323,7 +323,7 @@ def train(args,
         if i % args.vis_freq == 0:
             visualize(epoch, model, i, x,
                       args.save / 'imgs',
-                      args.scale_factor,
+                      args.shuffle_factor,
                       phase='trn',
                       left_pad=left_pad)
 
@@ -376,7 +376,7 @@ def validate(args,
             if i % args.vis_freq == 0:
                 visualize(epoch, model, i, x,
                           args.save / 'imgs',
-                          args.scale_factor,
+                          args.shuffle_factor,
                           phase='val',
                           left_pad=left_pad)
 
@@ -398,7 +398,7 @@ def visualize(epoch,
               itr,
               real_imgs,
               img_path,
-              scale_factor,
+              shuffle_factor,
               nvals=256,
               phase='trn',
               left_pad=0):
@@ -414,7 +414,7 @@ def visualize(epoch,
         # random samples
         if left_pad:
             # TODO not compatible with couople_label
-            ncls_len = np.prod(real_imgs.shape[2:]) * (scale_factor ** 2)
+            ncls_len = np.prod(real_imgs.shape[2:]) * (shuffle_factor ** 2)
             ncls = real_z[:, :ncls_len]
             fake_imgs = model(ncls, inverse=True)
 
@@ -423,7 +423,7 @@ def visualize(epoch,
                              real_imgs.shape[2] // 2,
                              real_imgs.shape[3] // 2)
             ncls = torch.pixel_shuffle(ncls,
-                                       scale_factor)
+                                       shuffle_factor)
             diff_recn = (real_imgs[:, :left_pad] -
                          recon_imgs[:, :left_pad]).abs().max()
             diff_fake = (real_imgs[:, :left_pad] -
@@ -442,18 +442,18 @@ def visualize(epoch,
 
         imgs = torch.cat([real_imgs, recon_imgs, fake_imgs], 0)
         imgs = imgs[:, left_pad:]
-        imgs = torch.pixel_shuffle(imgs, scale_factor)
+        imgs = torch.pixel_shuffle(imgs, shuffle_factor)
 
         if left_pad:
             ncls = torch.pixel_shuffle(ncls,
-                                       scale_factor)
+                                       shuffle_factor)
             ncls = torch.round(ncls * 5.)
             faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
             ncls = ncls.squeeze()
 
             ncls_gt = real_imgs[:, :left_pad].clone()
             ncls_gt = torch.pixel_shuffle(ncls_gt,
-                                          scale_factor)
+                                          shuffle_factor)
             ncls_gt = torch.round(ncls_gt * 5.)
             faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
             ncls_gt = ncls_gt.squeeze()
@@ -479,7 +479,7 @@ def main(args):
     exp_config = ('{}_{}_{}_{}_{}_'
                   '{}_{}_{}_{}_{}_{}').format(args.flow,
                                               args.classifier,
-                                              args.scale_factor,
+                                              args.shuffle_factor,
                                               args.env,
                                               args.aug,
                                               args.inp,

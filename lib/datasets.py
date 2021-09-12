@@ -110,7 +110,7 @@ class Imagenet64(CustomData):
 
 class SCRC(Dataset):
     def __init__(self,
-                 scale_factor,
+                 shuffle_factor,
                  n_classes,
                  couple_label,
                  scrc_path,
@@ -119,7 +119,7 @@ class SCRC(Dataset):
                  scrc_in=None,
                  scrc_out=None,
                  transforms=None):
-        self.scale_factor = scale_factor
+        self.shuffle_factor = shuffle_factor
         self.n_classes = n_classes
         self.couple_label = couple_label
         self.scrc_pat = scrc_pat
@@ -195,7 +195,7 @@ class SCRC(Dataset):
         if self.transforms is not None:
             img = self.transforms(img)
 
-        img = torch.pixel_unshuffle(img, self.scale_factor)
+        img = torch.pixel_unshuffle(img, self.shuffle_factor)
         if self.couple_label:
             lab_out = lab.float() * torch.ones((1,
                                                 img.shape[1],

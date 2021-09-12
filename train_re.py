@@ -10,6 +10,7 @@ import torch
 
 import numpy as np
 import torchvision.utils as tv_utils
+import torch.nn.functional as F
 import train_utils as utils
 import lib.optimizers as optim
 
@@ -36,7 +37,13 @@ parser.add_argument('--flow', type=str, default='reflow',
                     choices=['reflow', 'imflow'])
 parser.add_argument('--classifier', type=str, default='resnet',
                     choices=['resnet', 'densenet'])
-parser.add_argument('--scale-factor', type=int)
+parser.add_argument('--shuffle-factor',
+                    type=int,
+                    help='the factor signature for pixel_shuffle or pixel unshuffle')
+parser.add_argument('--scale-factor',
+                    type=float,
+                    default=0.5,
+                    help='the scale-factor signature for F.interpolate')
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--aug', type=str,
@@ -51,18 +58,10 @@ parser.add_argument('--right-pad', type=int, default=0)
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 
-parser.add_argument(
-    '--data', type=str, default='cifar10', choices=[
-        'mnist',
-        'cifar10',
-        'svhn',
-        'celebahq',
-        'celeba_5bit',
-        'imagenet32',
-        'imagenet64',
-        'scrc'
-    ]
-)
+parser.add_argument('--data',
+                    type=str,
+                    default='scrc',
+                    choices=['scrc', 'rxrx1'])
 
 parser.add_argument('--dataroot', type=str, default='data')
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
@@ -167,8 +166,9 @@ ce_meter = utils.RunningAverageMeter(0.97)
 
 
 def compute_loss(x,
+                 y,
                  model,
-                 left_pad,
+                 msk_len_z=0,
                  beta=1.0,
                  nvals=256):
     bits_per_dim = torch.zeros(1).to(x)
@@ -176,16 +176,17 @@ def compute_loss(x,
     logpz, delta_logp = torch.zeros(1).to(x), torch.zeros(1).to(x)
 
     if args.task == 'hybrid':
-        z_logp, logits_tensor = model(x, 0, classify=True)
+        z_logp, logits_tensor = model(x, y, 0, classify=True)
         z, delta_logp = z_logp
     elif args.task == 'density':
-        z, delta_logp = model(x, 0)
+        z, delta_logp = model(x, y, 0)
     elif args.task == 'classification':
-        z, logits_tensor = model(x, classify=True)
+        z, logits_tensor = model(x, y, classify=True)
 
     if args.task in ['density', 'hybrid']:
         # log p(z)
-        z = z[:, left_pad:]
+        if msk_len_z:
+            z = z[:, msk_len_z:]
         logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
 
         # log p(x)
@@ -211,7 +212,8 @@ def train(args,
           optimizer,
           logger,
           ema,
-          left_pad):
+          msk_len_z=0,
+          cls_num_y=1):
 
     model.train()
 
@@ -221,30 +223,30 @@ def train(args,
     end = time.time()
 
     trn_iter = iter(trn_loader[0])
-    for i, (x_1, y_1) in enumerate(trn_loader[1]):
-        global_itr = epoch * len(trn_loader[1]) + i
+    for i, (x, y, meta) in enumerate(trn_loader):
+        global_itr = epoch * len(trn_loader) + i
         utils.update_lr(optimizer, global_itr,
                         args.warmup_iters, args.lr)
 
         optimizer.zero_grad()
-        try:
-            (x_0, y_0) = next(trn_iter)
-        except StopIteration:
-            trn_iter = iter(trn_loader[0])
-            (x_0, y_0) = next(trn_iter)
+        # try:
+        #     (x_0, y_0) = next(trn_iter)
+        # except StopIteration:
+        #     trn_iter = iter(trn_loader[0])
+        #     (x_0, y_0) = next(trn_iter)
 
-        x = torch.cat((x_0, x_1), dim=0)
-        y = torch.cat((y_0, y_1), dim=0)
-        bat_id = np.random.rand(x.shape[0]).argsort()
-        x = x[bat_id, ]
-        y = y[bat_id, ]
+        # x = torch.cat((x_0, x_1), dim=0)
+        # y = torch.cat((y_0, y_1), dim=0)
+        # bat_id = np.random.rand(x.shape[0]).argsort()
+        # x = x[bat_id, ]
+        # y = y[bat_id, ]
         x = x.to(device)
         y = y.to(device)
 
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
         bpd, logits, logpz, neg_delta_logp = compute_loss(
-            x, model, left_pad, beta=beta)
+            x, y / cls_num_y, model, msk_len_z, beta=beta)
 
         if args.task in ['density', 'hybrid']:
             firmom, secmom = utils.estimator_moments(model)
@@ -321,27 +323,36 @@ def train(args,
 
             logger.info(s)
         if i % args.vis_freq == 0:
-            visualize(epoch, model, i, x,
-                      args.save / 'imgs',
+            save_kwargs = {'image_path': args.save / 'imgs',
+                           'epoch': epoch,
+                           'iteration': i,
+                           'phase': phase}
+            visualize(model,
+                      x,
+                      y / cls_num_y,
                       args.scale_factor,
-                      phase='trn',
-                      left_pad=left_pad)
+                      args.shuffle_factor,
+                      args.couple_label,
+                      msk_len_z,
+                      save_kwargs)
 
         del x
         torch.cuda.empty_cache()
         gc.collect()
 
 
-def validate(args,
+def evaluate(args,
              device,
              epoch,
              model,
              criterion,
-             dat_loader,
+             eval_loader,
              phase,
              logger,
-             ema=None,
-             left_pad=0):
+             ema,
+             msk_len_z=0,
+             cls_num_y=1,
+             is_visualize=True):
     """
     Evaluates the cross entropy between p_data and p_model.
     """
@@ -360,10 +371,10 @@ def validate(args,
 
     start = time.time()
     with torch.no_grad():
-        for i, (x, y) in enumerate(tqdm(dat_loader)):
+        for i, (x, y, meta) in enumerate(tqdm(eval_loader)):
             x = x.to(device)
             y = y.to(device)
-            bpd, logits, _, _ = compute_loss(x, model, left_pad)
+            bpd, logits, _, _ = compute_loss(x, y / cls_num_y, model, msk_len_z)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
@@ -373,12 +384,19 @@ def validate(args,
                 total += y.size(0)
                 correct += predicted.eq(y).sum().item()
 
-            if i % args.vis_freq == 0:
-                visualize(epoch, model, i, x,
-                          args.save / 'imgs',
+            if i % args.vis_freq == 0 and is_visualize:
+                save_kwargs = {'image_path': args.save / 'imgs',
+                               'epoch': epoch,
+                               'iteration': i,
+                               'phase': phase}
+                visualize(model,
+                          x,
+                          y / cls_num_y,
                           args.scale_factor,
-                          phase='val',
-                          left_pad=left_pad)
+                          args.shuffle_factor,
+                          args.couple_label,
+                          msk_len_z,
+                          save_kwargs)
 
     val_time = time.time() - start
 
@@ -393,88 +411,97 @@ def validate(args,
     return bpd_meter.avg
 
 
-def visualize(epoch,
-              model,
-              itr,
+def visualize(model,
               real_imgs,
-              img_path,
+              real_labs,
               scale_factor,
-              nvals=256,
-              phase='trn',
-              left_pad=0):
+              shuffle_factor,
+              couple_label,
+              msk_len_z=0,
+              **save_kwargs):
     model.eval()
-    real_imgs = real_imgs[:32]
 
     with torch.no_grad():
         # reconstructed real images
-        real_z = model(real_imgs)
-        # recon_z = real_z.clone().view(real_imgs.shape)
-        recon_imgs = model(real_z, inverse=True)
+        real_z = model(real_imgs, real_labs)
+        recn_imgs = model(real_z, inverse=True)
+        if scale_factor != 1:
+            real_imgs = F.interpolate(real_imgs,
+                                      scale_factor=scale_factor)
 
         # random samples
-        if left_pad:
-            # TODO not compatible with couople_label
-            ncls_len = np.prod(real_imgs.shape[2:]) * (scale_factor ** 2)
-            ncls = real_z[:, :ncls_len]
-            fake_imgs = model(ncls, inverse=True)
+        if msk_len_z:
+            cell_ann = real_z[:, :msk_len_z]
+            fake_imgs = model(cell_ann, inverse=True)
 
-            ncls = ncls.view(real_imgs.shape[0],
-                             -1,
-                             real_imgs.shape[2] // 2,
-                             real_imgs.shape[3] // 2)
-            ncls = torch.pixel_shuffle(ncls,
-                                       scale_factor)
-            diff_recn = (real_imgs[:, :left_pad] -
-                         recon_imgs[:, :left_pad]).abs().max()
-            diff_fake = (real_imgs[:, :left_pad] -
-                         fake_imgs[:, :left_pad]).abs().max()
-            diff_nucl = (real_imgs[:, :left_pad] - ncls).abs().max()
+            cell_ann = ncls.view(real_imgs.shape[0],
+                                 -1,
+                                 real_imgs.shape[2] // (shuffle_factor * 2),
+                                 real_imgs.shape[3] // (shuffle_factor * 2))
+            cell_ann = torch.pixel_shuffle(
+                torch.pixel_shuffle(cell_ann, 2),
+                shuffle_factor)
+            diff_recn = (real_imgs[:, 0] - recn_imgs[:, 0]).abs().max()
+            diff_fake = (real_imgs[:, 0] - fake_imgs[:, 0]).abs().max()
+            diff_cell = (real_imgs[:, 0] - cell_ann).abs().max()
             print('diff {:10f}, {:10f}, {:10f}'.format(diff_recn,
                                                        diff_fake,
                                                        diff_nucl))
-            print('ncls',
-                  torch.unique(recon_imgs[:, :left_pad]),
-                  torch.unique(fake_imgs[:, :left_pad]),
-                  torch.unique(ncls))
         else:
-            fake_imgs = model(torch.ones(
-                [real_imgs.shape[0]]).to(real_imgs), inverse=True)
+            fake_z = torch.ones([real_imgs.shape[0]]).to(real_imgs)
+            fake_imgs = model(fake_z, inverse=True)
 
-        imgs = torch.cat([real_imgs, recon_imgs, fake_imgs], 0)
-        imgs = imgs[:, left_pad:]
-        imgs = torch.pixel_shuffle(imgs, scale_factor)
+        imgs = torch.cat([real_imgs, recn_imgs, fake_imgs], 0)
+        imgs = imgs[:, -3:]
 
-        if left_pad:
-            ncls_gt = real_imgs[:, :left_pad].clone()
-            ncls_gt = torch.pixel_shuffle(ncls_gt,
-                                          scale_factor)
-            imgs[:ncls.shape[0]] -= ncls_gt
-            imgs[ncls.shape[0]: 2 * ncls.shape[0]] -= ncls_gt
-            imgs[-ncls.shape[0]:] -= ncls_gt
-            ncls_gt = torch.round(ncls_gt * 5.)
-            faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
-            ncls_gt = ncls_gt.squeeze()
-
-            ncls = torch.pixel_shuffle(ncls,
-                                       scale_factor)
-            ncls = torch.round(ncls * 5.)
-            faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
-            ncls = ncls.squeeze()
-
-            msk_diff = (ncls_gt - ncls).abs().max()
-            print('diff after pixelshuffle {:8f}'.format(msk_diff))
-
+        if msk_len_z:
+            real_cll_ann = real_imgs[:, 0].clone().squeeze()
+            real_cll_ann = torch.round(real_cll_ann * 25.6)
+            if couple_label:
+                real_cll_ann = real_cll_ann - real_labs
+            fake_img_ann = fake_imgs[:, 1:].clone().permute(0, 2, 3, 1)
             for i in (1, 2, 4):
-                faks[ncls == i] = torch.tensor(BERN_id[i]).to(faks)
-                faks_gt[ncls_gt == i] = torch.tensor(BERN_id[i]).to(faks_gt)
+                fake_img_ann[real_cll_ann == i] = torch.tensor(
+                    BERN_id[i]).to(fake_img_ann)
+
             imgs = torch.cat([imgs,
-                              #   faks.permute(0, 3, 1, 2),
-                              faks_gt.permute(0, 3, 1, 2)], 0)
+                              real_cll_ann.permute(0, 3, 1, 2)], 0)
+
+        # if left_pad:
+        #     ncls_gt = real_imgs[:, :left_pad].clone()
+        #     ncls_gt = torch.pixel_shuffle(ncls_gt,
+        #                                   shuffle_factor)
+        #     imgs[:ncls.shape[0]] -= ncls_gt
+        #     imgs[ncls.shape[0]: 2 * ncls.shape[0]] -= ncls_gt
+        #     imgs[-ncls.shape[0]:] -= ncls_gt
+        #     ncls_gt = torch.round(ncls_gt * 5.)
+        #     faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
+        #     ncls_gt = ncls_gt.squeeze()
+
+        #     ncls = torch.pixel_shuffle(ncls,
+        #                                shuffle_factor)
+        #     ncls = torch.round(ncls * 5.)
+        #     faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
+        #     ncls = ncls.squeeze()
+
+        #     msk_diff = (ncls_gt - ncls).abs().max()
+        #     print('diff after pixelshuffle {:8f}'.format(msk_diff))
+
+        #     for i in (1, 2, 4):
+        #         faks[ncls == i] = torch.tensor(BERN_id[i]).to(faks)
+        #         faks_gt[ncls_gt == i] = torch.tensor(BERN_id[i]).to(faks_gt)
+        #     imgs = torch.cat([imgs,
+        #                       #   faks.permute(0, 3, 1, 2),
+        #                       faks_gt.permute(0, 3, 1, 2)], 0)
 
         filename = pathlib.Path(img_path) / \
-            'e{:03d}_i{:06d}_{}.png'.format(epoch, itr, phase)
-        tv_utils.save_image(imgs.cpu().float(), str(
-            filename), nrow=8, padding=2)
+            'e{:03d}_i{:06d}_{}.png'.format(epoch,
+                                            iteration,
+                                            phase)
+        tv_utils.save_image(imgs.cpu().float(),
+                            str(filename),
+                            nrow=8,
+                            padding=2)
     model.train()
 
 
@@ -482,7 +509,7 @@ def main(args):
     exp_config = ('{}_{}_{}_{}_{}_'
                   '{}_{}_{}_{}_{}_{}').format(args.flow,
                                               args.classifier,
-                                              args.scale_factor,
+                                              args.shuffle_factor,
                                               args.env,
                                               args.aug,
                                               args.inp,
@@ -518,13 +545,12 @@ def main(args):
         logger.info('WARNING: Using device {}'.format(device))
 
     logger.info('Loading dataset {}'.format(args.data))
-    trn_loader, tst_loader, n_classes, input_size, left_pad, right_pad = utils.data_prep(
-        args)
+    data_loader, cls_num_y, input_size = utils.data_prep(args)
+    trn_loader, val_loader, tst_loader = data_loader
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
-    input_chn = input_size[1] - 1 if args.couple_label else input_size[1]
-    classifier = utils.InferNet(args.classifier, n_classes, input_chn)
+    classifier = utils.InferNet(args.classifier, cls_num_y, input_size[1])
     model = utils.model_prep(args, input_size, classifier, left_pad, right_pad)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
@@ -544,6 +570,9 @@ def main(args):
     lipschitz_constants = []
     best_val_bpd = math.inf
     ema = utils.ExponentialMovingAverage(model)
+    msk_len_z = 0
+    if args.data == 'scrc' and args.inp == 'im':
+        msk_len_z = (args.imagesize * args.scale_factor) ** 2
     for epoch in range(args.begin_epoch, args.nepochs):
         train(args,
               device,
@@ -554,24 +583,26 @@ def main(args):
               optimizer,
               logger,
               ema,
-              left_pad)
+              msk_len_z,
+              cls_num_y)
 
         lipschitz_constants.append(utils.get_lipschitz_constants(model))
         ords.append(utils.get_ords(model))
-        logger.info('Lipsh: {}'.format(
-            utils.pretty_repr(lipschitz_constants[-1])))
+        # logger.info('Lipsh: {}'.format(
+        #     utils.pretty_repr(lipschitz_constants[-1])))
         # logger.info('Order: {}'.format(utils.pretty_repr(ords[-1])))
 
-        # val_bpd = validate(args,
-        #                    device,
-        #                    epoch,
-        #                    model,
-        #                    criterion,
-        #                    tst_loader[0],
-        #                    'VAL',
-        #                    logger,
-        #                    ema=ema if args.ema_val else None,
-        #                    left_pad=left_pad)
+        val_bpd = evaluate(args,
+                           device,
+                           epoch,
+                           model,
+                           criterion,
+                           val_loader,
+                           'VAL',
+                           logger,
+                           ema if args.ema_val else None,
+                           msk_len_z,
+                           cls_num_y)
 
         if args.scheduler and scheduler is not None:
             scheduler.step()
@@ -595,9 +626,9 @@ def main(args):
         # }, os.path.join(args.save, 'models', 'most_recent.pth'))
 
         # if args.ema_val:
-        #     tst_bpd = validate(epoch, model, tst_loader[1], 'TST', ema)
+        #     tst_bpd = evaluate(epoch, model, tst_loader[1], 'TST', ema)
         # else:
-        #     tst_bpd = validate(epoch, model, tst_loader[1], 'TST')
+        #     tst_bpd = evaluate(epoch, model, tst_loader[1], 'TST')
 
     torch.cuda.synchronize()
 
