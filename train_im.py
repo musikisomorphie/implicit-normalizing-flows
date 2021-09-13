@@ -10,6 +10,7 @@ import torch
 
 import numpy as np
 import torchvision.utils as tv_utils
+import torch.nn.functional as F
 import train_utils as utils
 import lib.optimizers as optim
 
@@ -18,9 +19,7 @@ from tqdm import tqdm
 
 BERN_id = {1: (0, 0, 255),
            2: (255, 0, 0),
-           4: (0, 128, 0),
-           3: (255, 0, 255),
-           5: (0, 255, 255)}
+           3: (0, 128, 0)}
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -36,33 +35,27 @@ parser.add_argument('--flow', type=str, default='reflow',
                     choices=['reflow', 'imflow'])
 parser.add_argument('--classifier', type=str, default='resnet',
                     choices=['resnet', 'densenet'])
-parser.add_argument('--shuffle-factor', type=int)
+parser.add_argument('--shuffle-factor',
+                    type=int,
+                    help='the factor signature for pixel_shuffle or pixel unshuffle')
+parser.add_argument('--scale-factor',
+                    type=float,
+                    default=0.5,
+                    help='the scale-factor signature for F.interpolate')
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
-parser.add_argument('--aug', type=str,
-                    choices=['r', 'rr'])
 parser.add_argument('--inp', type=str,
-                    choices=['i', 'im'])
-parser.add_argument('--oup', type=str,
-                    choices=['cms'], default='cms')
+                    choices=['i', 'mi'])
 parser.add_argument('--couple-label', type=eval,
                     choices=[True, False], default=False)
 parser.add_argument('--right-pad', type=int, default=0)
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
 
-parser.add_argument(
-    '--data', type=str, default='cifar10', choices=[
-        'mnist',
-        'cifar10',
-        'svhn',
-        'celebahq',
-        'celeba_5bit',
-        'imagenet32',
-        'imagenet64',
-        'scrc'
-    ]
-)
+parser.add_argument('--data',
+                    type=str,
+                    default='scrc',
+                    choices=['scrc', 'rxrx1'])
 
 parser.add_argument('--dataroot', type=str, default='data')
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
@@ -477,17 +470,15 @@ def visualize(epoch,
 
 def main(args):
     exp_config = ('{}_{}_{}_{}_{}_'
-                  '{}_{}_{}_{}_{}_{}').format(args.flow,
-                                              args.classifier,
-                                              args.shuffle_factor,
-                                              args.env,
-                                              args.aug,
-                                              args.inp,
-                                              args.oup,
-                                              args.couple_label,
-                                              args.right_pad,
-                                              args.imagesize,
-                                              args.batchsize)
+                  '{}_{}_{}_{}').format(args.flow,
+                                        args.classifier,
+                                        args.shuffle_factor,
+                                        args.env,
+                                        args.inp,
+                                        args.couple_label,
+                                        args.right_pad,
+                                        args.imagesize,
+                                        args.batchsize)
     args.save = pathlib.Path(args.save) / exp_config
     (args.save / 'imgs').mkdir(parents=True, exist_ok=True)
     # logger

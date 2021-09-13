@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import train_utils as utils
+import torch.nn.functional as F
 import lib.layers as layers
 import lib.layers.base as base_layers
 
@@ -22,11 +22,12 @@ class ImplicitFlow(nn.Module):
 
     def __init__(
         self,
+        classification,
         classifier,
+        input_size,
         scale_factor,
         shuffle_factor,
         couple_label,
-        input_size,
         n_blocks=[16, 16],
         intermediate_dim=64,
         factor_out=True,
@@ -54,19 +55,16 @@ class ImplicitFlow(nn.Module):
         grad_in_forward=False,
         first_resblock=True,
         learn_p=False,
-        classification=False,
-        classification_hdim=64,
         block_type='imblock',
         left_pad=0,
         right_pad=0
     ):
         super(ImplicitFlow, self).__init__()
-        if self.classification:
+        if classification:
             self.classifier = classifier
         self.scale_factor = scale_factor
         self.shuffle_factor = shuffle_factor
         self.couple_label = couple_label
-        self.init_layer = None
         input_size = self._get_input_size(input_size)
 
         self.n_scale = min(len(n_blocks), self._calc_n_scale(input_size))
@@ -74,7 +72,6 @@ class ImplicitFlow(nn.Module):
         self.intermediate_dim = intermediate_dim
         self.factor_out = factor_out
         self.quadratic = quadratic
-        self.init_layer = init_layer
         self.actnorm = actnorm
         self.fc_actnorm = fc_actnorm
         self.batchnorm = batchnorm
@@ -98,8 +95,6 @@ class ImplicitFlow(nn.Module):
         self.grad_in_forward = grad_in_forward
         self.first_resblock = first_resblock
         self.learn_p = learn_p
-        self.classification = classification
-        self.classification_hdim = classification_hdim
         self.block_type = block_type
         self.left_pad = left_pad
         self.right_pad = right_pad
@@ -112,21 +107,21 @@ class ImplicitFlow(nn.Module):
 
         self.dims = [o[1:] for o in self.calc_output_size(input_size)]
 
-        self.fixed_z = utils.standard_normal_sample(
-            [input_size[0] * 2, np.prod(input_size[1:])])
+        self.fixed_z = torch.randn(
+            [input_size[0] * 2, np.prod(input_size[1:])]).float()
 
     def _get_input_size(self, input_size):
         if self.scale_factor != 1:
             input_size = [input_size[0],
                           input_size[1],
-                          int(input_size[2] * scale_factor),
-                          int(input_size[3] * scale_factor)]
+                          int(input_size[2] * self.scale_factor),
+                          int(input_size[3] * self.scale_factor)]
 
         if self.shuffle_factor != 1:
             input_size = [input_size[0],
-                          input_size[1] * (shuffle_factor ** 2),
-                          input_size[2] // shuffle_factor,
-                          input_size[3] // shuffle_factor]
+                          input_size[1] * (self.shuffle_factor ** 2),
+                          input_size[2] // self.shuffle_factor,
+                          input_size[3] // self.shuffle_factor]
 
         if self.couple_label:
             input_size[1] += 1
@@ -137,13 +132,13 @@ class ImplicitFlow(nn.Module):
         if self.scale_factor != 1:
             x = F.interpolate(x, scale_factor=self.scale_factor)
         if self.shuffle_factor != 1:
-            x = torch.pixel_shuffle(x, self.shuffle_factor)
+            x = torch.pixel_unshuffle(x, self.shuffle_factor)
         if self.couple_label:
             x = torch.cat([x,
-                           y * torch.ones([x.shape[0],
-                                           1,
-                                           x.shape[2],
-                                           x.shape[3]]).to(y)], 1)
+                           y.view(y.shape[0], 1, 1, 1) * torch.ones([x.shape[0],
+                                                                     1,
+                                                                     x.shape[2],
+                                                                     x.shape[3]]).to(y)], 1)
         return x
 
     def _build_net(self, input_size):
@@ -156,7 +151,7 @@ class ImplicitFlow(nn.Module):
                     initial_size=(c, h, w),
                     idim=self.intermediate_dim,
                     squeeze=(i < self.n_scale - 1),  # don't squeeze last layer
-                    init_layer=self.init_layer if i == 0 else None,
+                    init_layer=None,
                     n_blocks=self.n_blocks[i],
                     quadratic=self.quadratic,
                     actnorm=self.actnorm,
@@ -221,7 +216,7 @@ class ImplicitFlow(nn.Module):
                 print('fake shape', x.shape)
                 x = self.fixed_z[:x.shape[0]].to(x)
             elif x.shape[1] < self.fixed_z.shape[1]:
-                print('nucl shape', x.shape, self.fixed_z.shape)
+                print('cell shape', x.shape, self.fixed_z.shape)
                 assert self.fixed_z.shape[0] >= x.shape[0]
                 x = torch.cat((x,
                                self.fixed_z[:x.shape[0], :-x.shape[1]].to(x)), dim=1)

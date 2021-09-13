@@ -46,10 +46,12 @@ parser.add_argument('--inp', type=str,
                     choices=['i', 'im'])
 parser.add_argument('--oup', type=str,
                     choices=['cms'], default='cms')
-parser.add_argument('--couple-label', type=eval,
-                    choices=[True, False], default=False)
+parser.add_argument('--couple-label', action='store_true', default=False,
+                    help='couple label in the transformation')
 parser.add_argument('--imagesize', type=int, default=32)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
+parser.add_argument('--factor-out', action='store_true', default=False,
+                    help='couple label in the transformation')
 
 parser.add_argument(
     '--data', type=str, default='cifar10', choices=[

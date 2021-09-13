@@ -6,7 +6,7 @@ import logging
 import torch
 import torchvision.transforms as transforms
 import torch.nn as nn
-import torchvision.transforms.functional as F
+import torchvision.transforms.functional as TF
 from torchvision import models
 from skimage import color
 from numbers import Number
@@ -18,7 +18,7 @@ import lib.layers as layers
 import lib.layers.base as base_layers
 
 from wilds import get_dataset
-from wilds.common.data_loaders import get_train_loader
+from wilds.common.data_loaders import get_train_loader, get_eval_loader
 
 
 def initialize_rxrx1_transform(is_training):
@@ -322,7 +322,7 @@ class ResizeMix(object):
 
     def __call__(self, img):
         if self.near_dim is None:
-            out = F.resize(img, self.size)
+            out = TF.resize(img, self.size)
         else:
             lab_msk = torch.zeros(img.shape[0], dtype=torch.bool)
             lab_msk[self.near_dim] = True
@@ -330,12 +330,12 @@ class ResizeMix(object):
             out = torch.zeros([img.shape[0],
                                self.size[0],
                                self.size[1]]).to(img)
-            out[lab_msk] = F.resize(img[lab_msk],
-                                    self.size,
-                                    F.InterpolationMode.NEAREST)
-            out[~lab_msk] = F.resize(img[~lab_msk],
+            out[lab_msk] = TF.resize(img[lab_msk],
                                      self.size,
-                                     F.InterpolationMode.NEAREST)
+                                     TF.InterpolationMode.NEAREST)
+            out[~lab_msk] = TF.resize(img[~lab_msk],
+                                      self.size,
+                                      TF.InterpolationMode.NEAREST)
         return out
 
     def __repr__(self):
@@ -581,83 +581,73 @@ def initialize_model(model_name,
 
 
 def data_prep(args):
-    if args.data == 'rxrx1':
+    if args.dataset == 'rxrx1':
         trn_trans = initialize_rxrx1_transform(True)
-        val_trans = initialize_rxrx1_transform(False)
-        tst_trans = initialize_rxrx1_transform(False)
+        eval_trans = initialize_rxrx1_transform(False)
         dataset_kwargs = None
         split_scheme = 'official'
-    elif args.data == 'scrc':
+    elif args.dataset == 'scrc':
         trn_trans = initialize_scrc_transform(True)
-        val_trans = initialize_scrc_transform(False)
-        tst_trans = initialize_scrc_transform(False)
+        eval_trans = initialize_scrc_transform(False)
         if args.inp == 'i':
-            img_chn = [0, 1, 2]
-        elif args.inp == 'im':
+            img_chn = [1, 2, 3]
+        elif args.inp == 'mi':
             img_chn = [0, 1, 2, 3]
         elif args.inp == 'm':
-            img_chn = [4]
+            img_chn = [0]
         dataset_kwargs = {'img_chn': img_chn}
         split_scheme = args.env
 
+    data_loader = []
     loader_kwargs = {'num_workers': args.nworkers}
+    data = get_dataset(dataset=args.dataset,
+                       root_dir=pathlib.Path(args.dataroot),
+                       split_scheme=split_scheme,
+                       **dataset_kwargs)
 
-    dataset = get_dataset(dataset=args.dataset,
-                          root_dir=pathlib.Path(args.dataroot),
-                          split_scheme=split_scheme,
-                          dataset_kwargs=dataset_kwargs)
-    n_classes_y = dataset.n_classes
+    trn_data = data.get_subset('train',
+                               transform=trn_trans)
+    data_loader.append(get_train_loader('standard',
+                                        trn_data,
+                                        batch_size=args.batchsize,
+                                        **loader_kwargs))
+    for evl in ('val', 'test'):
+        sub_data = data.get_subset(evl,
+                                   transform=eval_trans)
+        data_loader.append(get_eval_loader('standard',
+                                           sub_data,
+                                           batch_size=args.eval_batchsize))
 
-    trn_data = dataset.get_subset('train',
-                                  transform=trn_trans)
-    trn_loader = get_train_loader('standard',
-                                  trn_data,
-                                  batch_size=args.batchsize,
-                                  loader_kwargs=loader_kwargs)
-
-    val_data = dataset.get_subset('val',
-                                  transform=val_trans)
-    val_loader = get_eval_loader('standard',
-                                 val_data,
-                                 batch_size=args.eval_batchsize)
-
-    tst_data = dataset.get_subset('test',
-                                  transform=val_trans)
-    tst_loader = get_eval_loader('standard',
-                                 tst_data,
-                                 batch_size=args.eval_batchsize)
-
-    data_loader = [trn_loader, val_loader, tst_loader]
     input_size = [args.batchsize,
                   len(img_chn),
                   args.imagesize,
                   args.imagesize]
 
-    return data_loader, n_classes_y, input_size
+    return data_loader, data.n_classes, input_size
 
 
-def model_prep(args, input_size, classifier):
+def model_prep(args, classifier, input_size):
     if args.flow == 'imflow':
         norm_flow = ImplicitFlow
     elif args.flow == 'reflow':
         norm_flow = ResidualFlow
 
-    if args.data == 'scrc' and args.inp == 'im':
+    if args.dataset == 'scrc' and args.inp == 'mi':
         _left_pad = args.shuffle_factor ** 2
     else:
         _left_pad = 0
 
     model = norm_flow(
+        classification=args.task in ['classification', 'hybrid'],
         classifier=classifier,
+        input_size=input_size,
         scale_factor=args.scale_factor,
         shuffle_factor=args.shuffle_factor,
         couple_label=args.couple_label,
-        input_size=input_size,
         n_blocks=list(map(int, args.nblocks.split('-'))),
         intermediate_dim=args.idim,
         factor_out=args.factor_out,
         quadratic=args.quadratic,
-        init_layer=layers.LogitTransform(0.05),
         actnorm=args.actnorm,
         fc_actnorm=args.fc_actnorm,
         batchnorm=args.batchnorm,
@@ -681,8 +671,6 @@ def model_prep(args, input_size, classifier):
         grad_in_forward=args.mem_eff,
         first_resblock=True,
         learn_p=args.learn_p,
-        classification=args.task in ['classification', 'hybrid'],
-        classification_hdim=args.cdim,
         left_pad=_left_pad)
 
     return model
@@ -706,3 +694,16 @@ def custom_logger(logger_name, level=logging.DEBUG):
     file_handler.setFormatter(log_format)
     logger.addHandler(file_handler)
     return logger
+
+
+def test(aa=0, **kwargs):
+    print('{}'.format(kwargs['bb']))
+
+
+def main():
+    kwargs = {'bb': 1}
+    test(**kwargs)
+
+
+if __name__ == '__main__':
+    main()

@@ -19,12 +19,11 @@ from tqdm import tqdm
 
 BERN_id = {1: (0, 0, 255),
            2: (255, 0, 0),
-           4: (0, 128, 0),
-           3: (255, 0, 255),
-           5: (0, 255, 255)}
+           3: (0, 128, 0)}
 
 # Arguments
 parser = argparse.ArgumentParser()
+# deepspeed parameters
 parser.add_argument('--backend', type=str, default='nccl',
                     help='distributed backend')
 parser.add_argument('--local_rank',
@@ -33,12 +32,22 @@ parser.add_argument('--local_rank',
                     help='local rank passed from distributed launcher')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 
+# essential parameters for model learning
+parser.add_argument('--dataset',
+                    type=str,
+                    default='scrc',
+                    choices=['scrc', 'rxrx1'])
+parser.add_argument('--dataroot', type=str, default='data')
+parser.add_argument('--save', help='directory to save results',
+                    type=str, default='experiment1')
+
 parser.add_argument('--flow', type=str, default='reflow',
                     choices=['reflow', 'imflow'])
 parser.add_argument('--classifier', type=str, default='resnet',
                     choices=['resnet', 'densenet'])
 parser.add_argument('--shuffle-factor',
                     type=int,
+                    default=2,
                     help='the factor signature for pixel_shuffle or pixel unshuffle')
 parser.add_argument('--scale-factor',
                     type=float,
@@ -46,39 +55,43 @@ parser.add_argument('--scale-factor',
                     help='the scale-factor signature for F.interpolate')
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
-parser.add_argument('--aug', type=str,
-                    choices=['r', 'rr'])
 parser.add_argument('--inp', type=str,
-                    choices=['i', 'im'])
-parser.add_argument('--oup', type=str,
-                    choices=['cms'], default='cms')
-parser.add_argument('--couple-label', type=eval,
-                    choices=[True, False], default=False)
+                    choices=['i', 'mi'])
 parser.add_argument('--right-pad', type=int, default=0)
-parser.add_argument('--imagesize', type=int, default=32)
-parser.add_argument('--batchsize', help='Minibatch size', type=int, default=64)
+parser.add_argument('--imagesize', type=int, default=256)
+parser.add_argument('--batchsize', help='Minibatch size', type=int, default=32)
 
-parser.add_argument('--data',
-                    type=str,
-                    default='scrc',
-                    choices=['scrc', 'rxrx1'])
+parser.add_argument('--nepochs', type=int, default=100)
+parser.add_argument('--nblocks', type=str, default='16-16-16')
+parser.add_argument('--couple-label', action='store_true', default=False,
+                    help='couple label in the transformation')
+parser.add_argument('--factor-out', action='store_true', default=False,
+                    help='half the output dimension for each block')
+parser.add_argument('--actnorm', action='store_true', default=False,
+                    help='add actnorm layer')
 
-parser.add_argument('--dataroot', type=str, default='data')
+# useful parameters
+parser.add_argument('--task', type=str,
+                    choices=['density', 'classification', 'hybrid'], default='density')
+parser.add_argument('--nworkers', type=int, default=4)
+parser.add_argument('--eval-batchsize',
+                    help='minibatch size', type=int, default=200)
+parser.add_argument(
+    '--print-freq', help='Print progress every so iterations', type=int, default=120)
+parser.add_argument(
+    '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
+
+# less essential parameters
 parser.add_argument('--nbits', type=int, default=8)  # Only used for celebahq.
-
 parser.add_argument('--block', type=str,
                     choices=['resblock', 'coupling'], default='resblock')
-
 parser.add_argument('--coeff', type=float, default=0.98)
 parser.add_argument('--vnorms', type=str, default='2222')
 parser.add_argument('--n-lipschitz-iters', type=int, default=None)
 parser.add_argument('--sn-tol', type=float, default=1e-3)
 parser.add_argument('--learn-p', type=eval,
                     choices=[True, False], default=False)
-
 parser.add_argument('--n-power-series', type=int, default=None)
-parser.add_argument('--factor-out', type=eval,
-                    choices=[True, False], default=False)
 parser.add_argument(
     '--n-dist', choices=['geometric', 'poisson'], default='poisson')
 parser.add_argument('--n-samples', type=int, default=1)
@@ -88,14 +101,8 @@ parser.add_argument('--neumann-grad', type=eval,
                     choices=[True, False], default=True)
 parser.add_argument('--mem-eff', type=eval,
                     choices=[True, False], default=True)
-
 parser.add_argument('--act', type=str, default='swish')
 parser.add_argument('--idim', type=int, default=512)
-parser.add_argument('--nblocks', type=str, default='16-16-16')
-parser.add_argument('--squeeze-first', type=eval,
-                    default=False, choices=[True, False])
-parser.add_argument('--actnorm', type=eval,
-                    default=True, choices=[True, False])
 parser.add_argument('--fc-actnorm', type=eval,
                     default=False, choices=[True, False])
 parser.add_argument('--batchnorm', type=eval,
@@ -115,28 +122,19 @@ parser.add_argument('--padding', type=int, default=0)
 parser.add_argument('--first-resblock', type=eval,
                     choices=[True, False], default=True)
 parser.add_argument('--cdim', type=int, default=256)
-
 parser.add_argument('--optimizer', type=str,
                     choices=['adam', 'adamax', 'rmsprop', 'sgd'], default='adam')
 parser.add_argument('--scheduler', type=eval,
                     choices=[True, False], default=False)
-parser.add_argument(
-    '--nepochs', help='Number of epochs for training', type=int, default=1000)
 parser.add_argument('--lr', help='Learning rate', type=float, default=1e-3)
 parser.add_argument('--wd', help='Weight decay', type=float, default=0)
 parser.add_argument('--warmup-iters', type=int, default=1000)
 parser.add_argument('--annealing-iters', type=int, default=0)
-parser.add_argument('--save', help='directory to save results',
-                    type=str, default='experiment1')
-parser.add_argument('--eval-batchsize',
-                    help='minibatch size', type=int, default=200)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--ema-val', type=eval,
                     choices=[True, False], default=True)
 parser.add_argument('--update-freq', type=int, default=1)
 
-parser.add_argument('--task', type=str,
-                    choices=['density', 'classification', 'hybrid'], default='density')
 parser.add_argument('--scale-dim', type=eval,
                     choices=[True, False], default=False)
 parser.add_argument('--rcrop-pad-mode', type=str,
@@ -147,11 +145,6 @@ parser.add_argument('--padding-dist', type=str,
 parser.add_argument('--resume', type=str, default=None)
 parser.add_argument('--begin-epoch', type=int, default=0)
 
-parser.add_argument('--nworkers', type=int, default=4)
-parser.add_argument(
-    '--print-freq', help='Print progress every so iterations', type=int, default=20)
-parser.add_argument(
-    '--vis-freq', help='Visualize progress every so iterations', type=int, default=500)
 parser = deepspeed.add_config_arguments(parser)
 args = parser.parse_args()
 
@@ -165,40 +158,43 @@ gnorm_meter = utils.RunningAverageMeter(0.97)
 ce_meter = utils.RunningAverageMeter(0.97)
 
 
+def rev_proc_img(x,
+                 y,
+                 shuffle_factor,
+                 couple_label):
+    if couple_label:
+        x, y_pred = x[:, :-1], x[:, -1]
+        print(y_pred.shape)
+        print('couple label diff', (y_pred -
+                                    y.view(y.shape[0], 1, 1)).abs().max())
+    x = torch.pixel_shuffle(x, shuffle_factor)
+    return x
+
+
 def compute_loss(x,
                  y,
                  model,
                  msk_len_z=0,
                  beta=1.0,
                  nvals=256):
-    bits_per_dim = torch.zeros(1).to(x)
-    logits_tensor = None
-    logpz, delta_logp = torch.zeros(1).to(x), torch.zeros(1).to(x)
+    z_logp, logits_tensor = model(x, y, 0, classify=True)
+    z, delta_logp = z_logp
+    if msk_len_z:
+        z = z[:, msk_len_z:]
 
-    if args.task == 'hybrid':
-        z_logp, logits_tensor = model(x, y, 0, classify=True)
-        z, delta_logp = z_logp
-    elif args.task == 'density':
-        z, delta_logp = model(x, y, 0)
-    elif args.task == 'classification':
-        z, logits_tensor = model(x, y, classify=True)
+    # log p(z)
+    logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
 
-    if args.task in ['density', 'hybrid']:
-        # log p(z)
-        if msk_len_z:
-            z = z[:, msk_len_z:]
-        logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
+    # log p(x)
+    logpx = logpz - beta * delta_logp - \
+        np.log(nvals) * np.prod(z.shape[1:])
 
-        # log p(x)
-        logpx = logpz - beta * delta_logp - \
-            np.log(nvals) * np.prod(z.shape[1:])
+    bits_per_dim = - torch.mean(logpx) / \
+        np.prod(z.shape[1:]) / np.log(2)
 
-        bits_per_dim = - torch.mean(logpx) / \
-            np.prod(z.shape[1:]) / np.log(2)
+    logpz = torch.mean(logpz).detach()
 
-        logpz = torch.mean(logpz).detach()
-
-        delta_logp = torch.mean(-delta_logp).detach()
+    delta_logp = torch.mean(-delta_logp).detach()
 
     return bits_per_dim, logits_tensor, logpz, delta_logp
 
@@ -222,31 +218,20 @@ def train(args,
 
     end = time.time()
 
-    trn_iter = iter(trn_loader[0])
     for i, (x, y, meta) in enumerate(trn_loader):
         global_itr = epoch * len(trn_loader) + i
         utils.update_lr(optimizer, global_itr,
                         args.warmup_iters, args.lr)
 
         optimizer.zero_grad()
-        # try:
-        #     (x_0, y_0) = next(trn_iter)
-        # except StopIteration:
-        #     trn_iter = iter(trn_loader[0])
-        #     (x_0, y_0) = next(trn_iter)
 
-        # x = torch.cat((x_0, x_1), dim=0)
-        # y = torch.cat((y_0, y_1), dim=0)
-        # bat_id = np.random.rand(x.shape[0]).argsort()
-        # x = x[bat_id, ]
-        # y = y[bat_id, ]
         x = x.to(device)
         y = y.to(device)
 
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
         bpd, logits, logpz, neg_delta_logp = compute_loss(
-            x, y / cls_num_y, model, msk_len_z, beta=beta)
+            x, y / cls_num_y, model, msk_len_z, beta)
 
         if args.task in ['density', 'hybrid']:
             firmom, secmom = utils.estimator_moments(model)
@@ -302,7 +287,7 @@ def train(args,
             s = (
                 'Epoch: [{0}][{1}/{2}] | Time {batch_time.val:.3f} | '
                 'GradNorm {gnorm_meter.avg:.2f}'.format(
-                    epoch, i, len(trn_loader[1]), batch_time=batch_time, gnorm_meter=gnorm_meter
+                    epoch, i, len(trn_loader), batch_time=batch_time, gnorm_meter=gnorm_meter
                 )
             )
 
@@ -323,10 +308,10 @@ def train(args,
 
             logger.info(s)
         if i % args.vis_freq == 0:
-            save_kwargs = {'image_path': args.save / 'imgs',
+            save_kwargs = {'img_path': args.save / 'imgs',
                            'epoch': epoch,
                            'iteration': i,
-                           'phase': phase}
+                           'phase': 'TRN'}
             visualize(model,
                       x,
                       y / cls_num_y,
@@ -334,7 +319,8 @@ def train(args,
                       args.shuffle_factor,
                       args.couple_label,
                       msk_len_z,
-                      save_kwargs)
+                      cls_num_y,
+                      **save_kwargs)
 
         del x
         torch.cuda.empty_cache()
@@ -374,7 +360,8 @@ def evaluate(args,
         for i, (x, y, meta) in enumerate(tqdm(eval_loader)):
             x = x.to(device)
             y = y.to(device)
-            bpd, logits, _, _ = compute_loss(x, y / cls_num_y, model, msk_len_z)
+            bpd, logits, _, _ = compute_loss(
+                x, y / cls_num_y, model, msk_len_z)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
@@ -385,7 +372,7 @@ def evaluate(args,
                 correct += predicted.eq(y).sum().item()
 
             if i % args.vis_freq == 0 and is_visualize:
-                save_kwargs = {'image_path': args.save / 'imgs',
+                save_kwargs = {'img_path': args.save / 'imgs',
                                'epoch': epoch,
                                'iteration': i,
                                'phase': phase}
@@ -396,7 +383,8 @@ def evaluate(args,
                           args.shuffle_factor,
                           args.couple_label,
                           msk_len_z,
-                          save_kwargs)
+                          cls_num_y,
+                          **save_kwargs)
 
     val_time = time.time() - start
 
@@ -418,86 +406,81 @@ def visualize(model,
               shuffle_factor,
               couple_label,
               msk_len_z=0,
+              cls_num_y=1,
               **save_kwargs):
     model.eval()
 
     with torch.no_grad():
         # reconstructed real images
         real_z = model(real_imgs, real_labs)
-        recn_imgs = model(real_z, inverse=True)
         if scale_factor != 1:
             real_imgs = F.interpolate(real_imgs,
                                       scale_factor=scale_factor)
+
+        recn_imgs = model(real_z, inverse=True)
+        recn_imgs = rev_proc_img(recn_imgs,
+                                 real_labs,
+                                 shuffle_factor,
+                                 couple_label)
 
         # random samples
         if msk_len_z:
             cell_ann = real_z[:, :msk_len_z]
             fake_imgs = model(cell_ann, inverse=True)
+            fake_imgs = rev_proc_img(fake_imgs,
+                                     real_labs,
+                                     shuffle_factor,
+                                     couple_label)
 
-            cell_ann = ncls.view(real_imgs.shape[0],
-                                 -1,
-                                 real_imgs.shape[2] // (shuffle_factor * 2),
-                                 real_imgs.shape[3] // (shuffle_factor * 2))
-            cell_ann = torch.pixel_shuffle(
-                torch.pixel_shuffle(cell_ann, 2),
-                shuffle_factor)
+            cell_ann = cell_ann.view(real_imgs.shape[0],
+                                     -1,
+                                     real_imgs.shape[2] // (shuffle_factor * 2),
+                                     real_imgs.shape[3] // (shuffle_factor * 2))
+            cell_ann = torch.pixel_shuffle(cell_ann, 2)
+            cell_ann = torch.pixel_shuffle(cell_ann, shuffle_factor)
+
             diff_recn = (real_imgs[:, 0] - recn_imgs[:, 0]).abs().max()
             diff_fake = (real_imgs[:, 0] - fake_imgs[:, 0]).abs().max()
-            diff_cell = (real_imgs[:, 0] - cell_ann).abs().max()
+            diff_cell = (real_imgs[:, 0] - cell_ann.squeeze()).abs().max()
             print('diff {:10f}, {:10f}, {:10f}'.format(diff_recn,
                                                        diff_fake,
-                                                       diff_nucl))
+                                                       diff_cell))
         else:
             fake_z = torch.ones([real_imgs.shape[0]]).to(real_imgs)
             fake_imgs = model(fake_z, inverse=True)
+            fake_imgs = rev_proc_img(fake_imgs,
+                                     real_labs,
+                                     shuffle_factor,
+                                     couple_label)
 
         imgs = torch.cat([real_imgs, recn_imgs, fake_imgs], 0)
         imgs = imgs[:, -3:]
 
         if msk_len_z:
-            real_cll_ann = real_imgs[:, 0].clone().squeeze()
-            real_cll_ann = torch.round(real_cll_ann * 25.6)
-            if couple_label:
-                real_cll_ann = real_cll_ann - real_labs
+            real_cll_ann = cell_ann.clone().squeeze()
+            real_cll_ann = torch.round(real_cll_ann * cls_num_y)
             fake_img_ann = fake_imgs[:, 1:].clone().permute(0, 2, 3, 1)
-            for i in (1, 2, 4):
+            for i in range(1, cls_num_y):
                 fake_img_ann[real_cll_ann == i] = torch.tensor(
                     BERN_id[i]).to(fake_img_ann)
 
             imgs = torch.cat([imgs,
-                              real_cll_ann.permute(0, 3, 1, 2)], 0)
+                              fake_img_ann.permute(0, 3, 1, 2)], 0)
 
-        # if left_pad:
-        #     ncls_gt = real_imgs[:, :left_pad].clone()
-        #     ncls_gt = torch.pixel_shuffle(ncls_gt,
-        #                                   shuffle_factor)
-        #     imgs[:ncls.shape[0]] -= ncls_gt
-        #     imgs[ncls.shape[0]: 2 * ncls.shape[0]] -= ncls_gt
-        #     imgs[-ncls.shape[0]:] -= ncls_gt
-        #     ncls_gt = torch.round(ncls_gt * 5.)
-        #     faks_gt = imgs[-ncls_gt.shape[0]:].clone().permute(0, 2, 3, 1)
-        #     ncls_gt = ncls_gt.squeeze()
+            real_cll_ann = real_imgs[:, 0].clone().squeeze()
+            real_cll_ann = torch.round(real_cll_ann * cls_num_y)
+            fake_img_ann = fake_imgs[:, 1:].clone().permute(0, 2, 3, 1)
+            for i in range(1, cls_num_y):
+                fake_img_ann[real_cll_ann == i] = torch.tensor(
+                    BERN_id[i]).to(fake_img_ann)
 
-        #     ncls = torch.pixel_shuffle(ncls,
-        #                                shuffle_factor)
-        #     ncls = torch.round(ncls * 5.)
-        #     faks = imgs[-ncls.shape[0]:].clone().permute(0, 2, 3, 1)
-        #     ncls = ncls.squeeze()
+            imgs = torch.cat([imgs,
+                              fake_img_ann.permute(0, 3, 1, 2)], 0)
 
-        #     msk_diff = (ncls_gt - ncls).abs().max()
-        #     print('diff after pixelshuffle {:8f}'.format(msk_diff))
-
-        #     for i in (1, 2, 4):
-        #         faks[ncls == i] = torch.tensor(BERN_id[i]).to(faks)
-        #         faks_gt[ncls_gt == i] = torch.tensor(BERN_id[i]).to(faks_gt)
-        #     imgs = torch.cat([imgs,
-        #                       #   faks.permute(0, 3, 1, 2),
-        #                       faks_gt.permute(0, 3, 1, 2)], 0)
-
-        filename = pathlib.Path(img_path) / \
-            'e{:03d}_i{:06d}_{}.png'.format(epoch,
-                                            iteration,
-                                            phase)
+        filename = pathlib.Path(save_kwargs['img_path']) / \
+            'e{:03d}_i{:06d}_{}.png'.format(save_kwargs['epoch'],
+                                            save_kwargs['iteration'],
+                                            save_kwargs['phase'])
         tv_utils.save_image(imgs.cpu().float(),
                             str(filename),
                             nrow=8,
@@ -506,18 +489,23 @@ def visualize(model,
 
 
 def main(args):
-    exp_config = ('{}_{}_{}_{}_{}_'
-                  '{}_{}_{}_{}_{}_{}').format(args.flow,
-                                              args.classifier,
-                                              args.shuffle_factor,
-                                              args.env,
-                                              args.aug,
-                                              args.inp,
-                                              args.oup,
-                                              args.couple_label,
-                                              args.right_pad,
-                                              args.imagesize,
-                                              args.batchsize)
+    exp_config = ('{}_{}_{}_{}_{}_{}_'
+                  '{}_{}_{}_{}_{}_{}_'
+                  '{}_{}_{}').format(args.dataset,
+                                     args.flow,
+                                     args.classifier,
+                                     args.shuffle_factor,
+                                     args.scale_factor,
+                                     args.env,
+                                     args.inp,
+                                     args.right_pad,
+                                     args.imagesize,
+                                     args.batchsize,
+                                     args.nepochs,
+                                     args.nblocks,
+                                     args.couple_label,
+                                     args.factor_out,
+                                     args.actnorm)
     args.save = pathlib.Path(args.save) / exp_config
     (args.save / 'imgs').mkdir(parents=True, exist_ok=True)
     # logger
@@ -544,14 +532,14 @@ def main(args):
     else:
         logger.info('WARNING: Using device {}'.format(device))
 
-    logger.info('Loading dataset {}'.format(args.data))
+    logger.info('Loading dataset {}'.format(args.dataset))
     data_loader, cls_num_y, input_size = utils.data_prep(args)
     trn_loader, val_loader, tst_loader = data_loader
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
     classifier = utils.InferNet(args.classifier, cls_num_y, input_size[1])
-    model = utils.model_prep(args, input_size, classifier, left_pad, right_pad)
+    model = utils.model_prep(args, classifier, input_size)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     model, optimizer, _, __ = deepspeed.initialize(args=args,
@@ -571,8 +559,8 @@ def main(args):
     best_val_bpd = math.inf
     ema = utils.ExponentialMovingAverage(model)
     msk_len_z = 0
-    if args.data == 'scrc' and args.inp == 'im':
-        msk_len_z = (args.imagesize * args.scale_factor) ** 2
+    if args.dataset == 'scrc' and args.inp == 'mi':
+        msk_len_z = int((args.imagesize * args.scale_factor) ** 2)
     for epoch in range(args.begin_epoch, args.nepochs):
         train(args,
               device,
