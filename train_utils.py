@@ -584,8 +584,9 @@ def data_prep(args):
     if args.dataset == 'rxrx1':
         trn_trans = initialize_rxrx1_transform(True)
         eval_trans = initialize_rxrx1_transform(False)
-        dataset_kwargs = None
+        dataset_kwargs = dict()
         split_scheme = 'official'
+        num_chn = 3
     elif args.dataset == 'scrc':
         trn_trans = initialize_scrc_transform(True)
         eval_trans = initialize_scrc_transform(False)
@@ -597,6 +598,7 @@ def data_prep(args):
             img_chn = [0]
         dataset_kwargs = {'img_chn': img_chn}
         split_scheme = args.env
+        num_chn = len(img_chn)
 
     data_loader = []
     loader_kwargs = {'num_workers': args.nworkers}
@@ -619,10 +621,11 @@ def data_prep(args):
                                            batch_size=args.eval_batchsize))
 
     input_size = [args.batchsize,
-                  len(img_chn),
+                  num_chn,
                   args.imagesize,
                   args.imagesize]
 
+    print('rxrx1', data.n_classes)
     return data_loader, data.n_classes, input_size
 
 

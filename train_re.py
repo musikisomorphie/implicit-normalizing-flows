@@ -56,7 +56,8 @@ parser.add_argument('--scale-factor',
 parser.add_argument('--env', type=str,
                     choices=['012', '120', '201'])
 parser.add_argument('--inp', type=str,
-                    choices=['i', 'mi'])
+                    choices=['i', 'mi'],
+                    default='i')
 parser.add_argument('--right-pad', type=int, default=0)
 parser.add_argument('--imagesize', type=int, default=256)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=32)
@@ -156,6 +157,26 @@ firmom_meter = utils.RunningAverageMeter(0.97)
 secmom_meter = utils.RunningAverageMeter(0.97)
 gnorm_meter = utils.RunningAverageMeter(0.97)
 ce_meter = utils.RunningAverageMeter(0.97)
+
+
+def linspace(start, stop, num):
+    """
+    Creates a tensor of shape [num, *start.shape] whose values are evenly spaced from start to end, inclusive.
+    Replicates but the multi-dimensional bahaviour of numpy.linspace in PyTorch.
+    """
+    # create a tensor of 'num' steps from 0 to 1
+    steps = torch.arange(num, dtype=torch.float32).to(start) / (num - 1)
+
+    # reshape the 'steps' tensor to [-1, *([1]*start.ndim)] to allow for broadcastings
+    # - using 'steps.reshape([-1, *([1]*start.ndim)])' would be nice here but torchscript
+    #   "cannot statically infer the expected size of a list in this contex", hence the code below
+    for i in range(start.ndim):
+        steps = steps.unsqueeze(-1)
+
+    # the output starts at 'start' and increments until 'stop' in each dimension
+    out = start[None] + steps*(stop - start)[None]
+
+    return out
 
 
 def rev_proc_img(x,
@@ -423,6 +444,13 @@ def visualize(model,
                                  shuffle_factor,
                                  couple_label)
 
+        intp_z = linspace(real_z[0], real_z[-1], real_z.shape[0])
+        intp_imgs = model(intp_z, inverse=True)
+        intp_imgs = rev_proc_img(intp_imgs,
+                                 real_labs,
+                                 shuffle_factor,
+                                 couple_label)
+
         # random samples
         if msk_len_z:
             cell_ann = real_z[:, :msk_len_z]
@@ -453,7 +481,7 @@ def visualize(model,
                                      shuffle_factor,
                                      couple_label)
 
-        imgs = torch.cat([real_imgs, recn_imgs, fake_imgs], 0)
+        imgs = torch.cat([real_imgs, recn_imgs, fake_imgs, intp_imgs], 0)
         imgs = imgs[:, -3:]
 
         if msk_len_z:
