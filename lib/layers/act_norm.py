@@ -55,7 +55,12 @@ class ActNormNd(nn.Module):
 
         y = (x + bias.to(x)) * torch.exp(weight.to(x))
         if logpx is not None:
-            logpx -= self._logdetgrad(x)
+            logdetgrad = self._logdetgrad(x)
+            # print(logpx[1].shape, logdetgrad.shape)
+            logpx[1] = logpx[1] * \
+                logdetgrad.detach().clone().view(logpx[1].shape)
+            logpx[0] -= logdetgrad.view(x.shape[0], -
+                                        1).sum(1, keepdim=True)
 
         if self.left_pad:
             y = torch.cat((x_left, y), dim=1)
@@ -79,7 +84,10 @@ class ActNormNd(nn.Module):
 
         x = y * torch.exp(-weight) - bias
         if logpy is not None:
-            logpy += self._logdetgrad(x)
+            logdetgrad = self._logdetgrad(x)
+            logpy[1] = logpy / (logdetgrad.detach().clone() + 1e-8)
+            logpy[0] += logdetgrad.view(x.shape[0], -
+                                        1).view(x.shape[0], -1).sum(1, keepdim=True)
 
         if self.left_pad:
             x = torch.cat((y_left, x), dim=1)
@@ -92,7 +100,7 @@ class ActNormNd(nn.Module):
             return x, logpy
 
     def _logdetgrad(self, x):
-        return self.weight.view(*self.shape).expand(*x.shape).contiguous().view(x.shape[0], -1).sum(1, keepdim=True)
+        return self.weight.view(*self.shape).expand(*x.shape).contiguous()
 
     def __repr__(self):
         return ('{name}({num_features})'.format(name=self.__class__.__name__, **self.__dict__))

@@ -57,15 +57,18 @@ class iResBlock(nn.Module):
             y = x + self.nnet(x)
             return y
         else:
-            g, logdetgrad = self._logdetgrad(x)
-            return x + g, logpx - logdetgrad
+            g, logdetgrad, logpx[1] = self._logdetgrad(x, logpx[1])
+            logpx[0] -= logdetgrad
+            return x + g, logpx
 
     def inverse(self, y, logpy=None):
         x = self._inverse_fixed_point(y)
         if logpy is None:
             return x
         else:
-            return x, logpy + self._logdetgrad(x)[1]
+            logdetgrad, logpy[1] = self._logdetgrad(x, logpy[1])[1:]
+            logpy[0] += logdetgrad
+            return x, logpy
 
     def _inverse_fixed_point(self, y, atol=1e-5, rtol=1e-5, threshold=100):
         x, x_prev = y - self.nnet(y), y
@@ -80,9 +83,9 @@ class iResBlock(nn.Module):
                 break
         return x
 
-    def _logdetgrad(self, x):
+    def _logdetgrad(self, x, logp):
         """Returns g(x) and logdet|d(x+g(x))/dx|."""
-
+        neumanngrad = None
         with torch.enable_grad():
             if (self.brute_force or not self.training) and (x.ndimension() == 2 and x.shape[1] == 2):
                 ###########################################
@@ -135,19 +138,19 @@ class iResBlock(nn.Module):
                 # Choose the type of estimator.
                 if self.training and self.neumann_grad:
                     estimator_fn = neumann_logdet_estimator
-                else:
-                    estimator_fn = basic_logdet_estimator
+                # else:
+                #     estimator_fn = basic_logdet_estimator
 
                 # Do backprop-in-forward to save memory.
                 if self.training and self.grad_in_forward:
-                    g, logdetgrad = mem_eff_wrapper(
-                        estimator_fn, self.nnet, x, n_power_series, vareps, coeff_fn, self.training
+                    g, logdetgrad, neumanngrad = mem_eff_wrapper(
+                        estimator_fn, self.nnet, x, n_power_series, vareps, logp, coeff_fn, self.training
                     )
                 else:
                     x = x.requires_grad_(True)
                     g = self.nnet(x)
-                    logdetgrad = estimator_fn(
-                        g, x, n_power_series, vareps, coeff_fn, self.training)
+                    logdetgrad, neumanngrad = estimator_fn(
+                        g, x, n_power_series, vareps, logp, coeff_fn, self.training)
             else:
                 ############################################
                 # Power series with exact trace computation.
@@ -170,7 +173,7 @@ class iResBlock(nn.Module):
                     estimator).to(self.last_firmom))
                 self.last_secmom.copy_(torch.mean(
                     estimator**2).to(self.last_secmom))
-            return g, logdetgrad.view(-1, 1)
+            return g, logdetgrad.view(-1, 1), neumanngrad
 
     def extra_repr(self):
         return 'dist={}, n_samples={}, n_power_series={}, neumann_grad={}, exact_trace={}, brute_force={}'.format(
@@ -196,15 +199,15 @@ def batch_trace(M):
 class MemoryEfficientLogDetEstimator(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, training, *g_params):
+    def forward(ctx, estimator_fn, gnet, x, n_power_series, vareps, logp, coeff_fn, training, *g_params):
         ctx.training = training
         with torch.enable_grad():
             x = x.detach().requires_grad_(True)
             g = gnet(x)
             ctx.g = g
             ctx.x = x
-            logdetgrad = estimator_fn(
-                g, x, n_power_series, vareps, coeff_fn, training)
+            logdetgrad, neumanngrad = estimator_fn(
+                g, x, n_power_series, vareps, logp, coeff_fn, training)
 
             if training:
                 grad_x, *grad_params = torch.autograd.grad(
@@ -214,10 +217,10 @@ class MemoryEfficientLogDetEstimator(torch.autograd.Function):
                     grad_x = torch.zeros_like(x)
                 ctx.save_for_backward(grad_x, *g_params, *grad_params)
 
-        return safe_detach(g), safe_detach(logdetgrad)
+        return safe_detach(g), safe_detach(logdetgrad), safe_detach(neumanngrad)
 
     @staticmethod
-    def backward(ctx, grad_g, grad_logdetgrad):
+    def backward(ctx, grad_g, grad_logdetgrad, grad_neumanngrad):
         training = ctx.training
         if not training:
             raise ValueError('Provide training=True if using backward.')
@@ -247,7 +250,7 @@ class MemoryEfficientLogDetEstimator(torch.autograd.Function):
             grad_params = tuple([dg.add_(
                 djac) if djac is not None else dg for dg, djac in zip(dg_params, grad_params)])
 
-        return (None, None, grad_x, None, None, None, None) + grad_params
+        return (None, None, grad_x, None, None, None, None, None) + grad_params
 
 
 def basic_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
@@ -263,20 +266,24 @@ def basic_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
     return logdetgrad
 
 
-def neumann_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
+def neumann_logdet_estimator(g, x, n_power_series, vareps, logp, coeff_fn, training):
     vjp = vareps
     neumann_vjp = vareps
+    vjp1 = logp
+    neumann_vjp1 = logp
     with torch.no_grad():
         for k in range(1, n_power_series + 1):
             vjp = torch.autograd.grad(g, x, vjp, retain_graph=True)[0]
             neumann_vjp = neumann_vjp + (-1)**k * coeff_fn(k) * vjp
+            vjp1 = torch.autograd.grad(g, x, vjp1, retain_graph=True)[0]
+            neumann_vjp1 = neumann_vjp1 + (-1)**k * coeff_fn(k) * vjp1
     vjp_jac = torch.autograd.grad(g, x, neumann_vjp, create_graph=training)[0]
     logdetgrad = torch.sum(vjp_jac.view(
         x.shape[0], -1) * vareps.view(x.shape[0], -1), 1)
-    return logdetgrad
+    return logdetgrad, neumann_vjp1
 
 
-def mem_eff_wrapper(estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, training):
+def mem_eff_wrapper(estimator_fn, gnet, x, n_power_series, vareps, logp, coeff_fn, training):
 
     # We need this in order to access the variables inside this module,
     # since we have no other way of getting variables along the execution path.
@@ -284,7 +291,7 @@ def mem_eff_wrapper(estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, tra
         raise ValueError('g is required to be an instance of nn.Module.')
 
     return MemoryEfficientLogDetEstimator.apply(
-        estimator_fn, gnet, x, n_power_series, vareps, coeff_fn, training, *
+        estimator_fn, gnet, x, n_power_series, vareps, logp, coeff_fn, training, *
         list(gnet.parameters())
     )
 

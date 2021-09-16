@@ -194,21 +194,25 @@ def rev_proc_img(x,
 
 def compute_loss(x,
                  y,
+                 lab,
                  model_clss,
                  model_symm,
+                 criterion,
                  msk_len_z=0,
                  beta=1.0,
                  nvals=256):
-    # x.requires_grad = True
+    x.requires_grad = True
     logits_tensor = model_clss(x)
-    # grad_clss = torch.autograd.grad(outputs=logits_tensor,
-    #                                 inputs=x,
-    #                                 grad_outputs=torch.ones_like(
-    #                                     logits_tensor),
-    #                                 retain_graph=True)[0]
-    # grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
-    # grad_clss = torch.pixel_unshuffle(grad_clss, 2)
-    z, delta_logp = model_symm(x, y, 0)
+    crossent = criterion(logits_tensor, lab)
+    grad_clss = torch.autograd.grad(outputs=crossent,
+                                    inputs=x,
+                                    retain_graph=True)[0]
+    grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
+    grad_clss = torch.pixel_unshuffle(grad_clss, 2)
+    z, delta_logp = model_symm(x, y, [0, grad_clss * 256])
+    delta_logp, tot_grad = delta_logp
+    grad_mean = tot_grad.norm(p=1, dim=1).mean()
+    # print(grad_mean.item())
     if msk_len_z:
         z = z[:, msk_len_z:]
 
@@ -226,7 +230,7 @@ def compute_loss(x,
 
     delta_logp = torch.mean(-delta_logp).detach()
 
-    return bits_per_dim, logits_tensor, logpz, delta_logp
+    return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, grad_mean
 
 
 def train(args,
@@ -264,10 +268,12 @@ def train(args,
 
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
-        bpd, logits, logpz, neg_delta_logp = compute_loss(x, y / cls_num_y,
-                                                          model_clss, model_symm,
-                                                          msk_len_z, beta)
-        crossent = criterion(logits, y)
+        bpd, logits, logpz, neg_delta_logp, crossent, grad_mean = compute_loss(x, y / cls_num_y, y,
+                                                                               model_clss, model_symm,
+                                                                               criterion,
+                                                                               msk_len_z, beta)
+        # print(tot_grad.shape, tot_grad.abs().mean())
+        # crossent = criterion(logits, y)
 
         # update a variety of metrics
         bpd_meter.update(bpd.item())
@@ -283,10 +289,9 @@ def train(args,
         total += y.size(0)
         correct += predicted.eq(y).sum().item()
 
-        crossent.backward()
+        (crossent + grad_mean + bpd).backward()
         optim_clss.step()
 
-        bpd.backward()
         if global_itr % args.update_freq == args.update_freq - 1:
             if args.update_freq > 1:
                 with torch.no_grad():
@@ -304,7 +309,6 @@ def train(args,
             optim_symm.step()
             utils.update_lipschitz(model_symm)
             ema.apply()
-
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -390,13 +394,14 @@ def evaluate(args,
         for i, (x, y, meta) in enumerate(tqdm(eval_loader)):
             x = x.to(device)
             y = y.to(device)
-            bpd, logits, _, _ = compute_loss(x, y / cls_num_y,
-                                             model_clss, model_symm,
-                                             msk_len_z)
+            bpd, logits, _, _, loss, _ = compute_loss(x, y / cls_num_y, y,
+                                                      model_clss, model_symm,
+                                                      criterion,
+                                                      msk_len_z)
             bpd_meter.update(bpd.item(), x.size(0))
 
             if args.task in ['classification', 'hybrid']:
-                loss = criterion(logits, y)
+                # loss = criterion(logits, y)
                 ce_meter.update(loss.item(), x.size(0))
                 _, predicted = logits.max(1)
                 total += y.size(0)
@@ -629,18 +634,18 @@ def main(args):
         #     utils.pretty_repr(lipschitz_constants[-1])))
         # logger.info('Order: {}'.format(utils.pretty_repr(ords[-1])))
 
-        # val_bpd = evaluate(args,
-        #                    device,
-        #                    epoch,
-        #                    model_clss,
-        #                    model_symm,
-        #                    criterion,
-        #                    val_loader,
-        #                    logger,
-        #                    ema if args.ema_val else None,
-        #                    'VAL',
-        #                    msk_len_z,
-        #                    cls_num_y)
+        val_bpd = evaluate(args,
+                           device,
+                           epoch,
+                           model_clss,
+                           model_symm,
+                           criterion,
+                           val_loader,
+                           logger,
+                           ema if args.ema_val else None,
+                           'VAL',
+                           msk_len_z,
+                           cls_num_y)
 
         if args.scheduler and scheduler is not None:
             scheduler.step()

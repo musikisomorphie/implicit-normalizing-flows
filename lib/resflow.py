@@ -221,6 +221,7 @@ class ResidualFlow(nn.Module):
         x = self._get_input(x, y)
 
         out = []
+        neumann_grad = []
         for idx in range(len(self.transforms)):
             if logpx is not None:
                 x, logpx = self.transforms[idx].forward(
@@ -231,9 +232,16 @@ class ResidualFlow(nn.Module):
                 d = x.size(1) // 2
                 f, x = x[:, :d], x[:, d:]
                 out.append(f)
+                if logpx is not None:
+                    n_grad, logpx[1] = logpx[1][:, :d], logpx[1][:, d:]
+                    neumann_grad.append(n_grad)
 
         out.append(x)
         out = torch.cat([o.view(o.size()[0], -1) for o in out], 1)
+        if logpx is not None:
+            neumann_grad = torch.cat(
+                [n_grad.view(n_grad.size()[0], -1) for n_grad in neumann_grad], 1)
+            logpx[1] = neumann_grad
         output = out if logpx is None else (out, logpx)
 
         return output
