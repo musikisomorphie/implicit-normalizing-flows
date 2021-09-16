@@ -138,8 +138,8 @@ class iResBlock(nn.Module):
                 # Choose the type of estimator.
                 if self.training and self.neumann_grad:
                     estimator_fn = neumann_logdet_estimator
-                # else:
-                #     estimator_fn = basic_logdet_estimator
+                else:
+                    estimator_fn = basic_logdet_estimator
 
                 # Do backprop-in-forward to save memory.
                 if self.training and self.grad_in_forward:
@@ -253,7 +253,7 @@ class MemoryEfficientLogDetEstimator(torch.autograd.Function):
         return (None, None, grad_x, None, None, None, None, None) + grad_params
 
 
-def basic_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
+def basic_logdet_estimator(g, x, n_power_series, vareps, logp, coeff_fn, training):
     vjp = vareps
     logdetgrad = torch.tensor(0.).to(x)
     for k in range(1, n_power_series + 1):
@@ -263,7 +263,7 @@ def basic_logdet_estimator(g, x, n_power_series, vareps, coeff_fn, training):
                        * vareps.view(x.shape[0], -1), 1)
         delta = (-1)**(k + 1) / k * coeff_fn(k) * tr
         logdetgrad = logdetgrad + delta
-    return logdetgrad
+    return logdetgrad, logp
 
 
 def neumann_logdet_estimator(g, x, n_power_series, vareps, logp, coeff_fn, training):

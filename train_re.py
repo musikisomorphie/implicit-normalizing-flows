@@ -200,16 +200,21 @@ def compute_loss(x,
                  criterion,
                  msk_len_z=0,
                  beta=1.0,
-                 nvals=256):
+                 nvals=256,
+                 is_train=True):
     x.requires_grad = True
     logits_tensor = model_clss(x)
     crossent = criterion(logits_tensor, lab)
-    grad_clss = torch.autograd.grad(outputs=crossent,
-                                    inputs=x,
-                                    retain_graph=True)[0]
+    if is_train:
+        grad_clss = torch.autograd.grad(outputs=crossent,
+                                        inputs=x,
+                                        retain_graph=is_train)[0]
+    else:
+        grad_clss = torch.ones_like(x)
     grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
     grad_clss = torch.pixel_unshuffle(grad_clss, 2)
-    z, delta_logp = model_symm(x, y, [0, grad_clss * 256])
+
+    z, delta_logp = model_symm(x, y, [0, grad_clss])
     delta_logp, tot_grad = delta_logp
     grad_mean = tot_grad.norm(p=1, dim=1).mean()
     # print(grad_mean.item())
@@ -378,8 +383,8 @@ def evaluate(args,
     bpd_meter = utils.AverageMeter()
     ce_meter = utils.AverageMeter()
 
-    if ema is not None:
-        ema.swap()
+    # if ema is not None:
+    #     ema.swap()
 
     utils.update_lipschitz(model_symm)
 
@@ -390,43 +395,43 @@ def evaluate(args,
     total = 0
 
     start = time.time()
-    with torch.no_grad():
-        for i, (x, y, meta) in enumerate(tqdm(eval_loader)):
-            x = x.to(device)
-            y = y.to(device)
-            bpd, logits, _, _, loss, _ = compute_loss(x, y / cls_num_y, y,
-                                                      model_clss, model_symm,
-                                                      criterion,
-                                                      msk_len_z)
-            bpd_meter.update(bpd.item(), x.size(0))
+    for i, (x, y, meta) in enumerate(tqdm(eval_loader)):
+        x = x.to(device)
+        y = y.to(device)
+        bpd, logits, _, _, loss, _ = compute_loss(x, y / cls_num_y, y,
+                                                  model_clss, model_symm,
+                                                  criterion,
+                                                  msk_len_z,
+                                                  is_train=False)
+        bpd_meter.update(bpd.item(), x.size(0))
 
-            if args.task in ['classification', 'hybrid']:
-                # loss = criterion(logits, y)
-                ce_meter.update(loss.item(), x.size(0))
-                _, predicted = logits.max(1)
-                total += y.size(0)
-                correct += predicted.eq(y).sum().item()
+        if args.task in ['classification', 'hybrid']:
+            # loss = criterion(logits, y)
+            ce_meter.update(loss.item(), x.size(0))
+            _, predicted = logits.max(1)
+            total += y.size(0)
+            correct += predicted.eq(y).sum().item()
 
-            if i % args.vis_freq == 0 and is_visualize:
-                save_kwargs = {'img_path': args.save / 'imgs',
-                               'epoch': epoch,
-                               'iteration': i,
-                               'phase': phase}
-                visualize(model_clss,
-                          model_symm,
-                          x,
-                          y / cls_num_y,
-                          args.scale_factor,
-                          args.shuffle_factor,
-                          args.couple_label,
-                          msk_len_z,
-                          cls_num_y,
-                          **save_kwargs)
+        if i % args.vis_freq == 0 and is_visualize:
+            save_kwargs = {'img_path': args.save / 'imgs',
+                           'epoch': epoch,
+                           'iteration': i,
+                           'phase': phase}
+            visualize(model_clss,
+                      model_symm,
+                      x,
+                      y / cls_num_y,
+                      args.scale_factor,
+                      args.shuffle_factor,
+                      args.couple_label,
+                      msk_len_z,
+                      cls_num_y,
+                      **save_kwargs)
 
     val_time = time.time() - start
 
-    if ema is not None:
-        ema.swap()
+    # if ema is not None:
+    #     ema.swap()
     s = '{} | Epoch: [{}]\tTime {:.2f} | bits/dim {bpd_meter.avg:.4f}'.format(
         phase, epoch, val_time, bpd_meter=bpd_meter)
     if args.task in ['classification', 'hybrid']:
