@@ -75,13 +75,13 @@ def initialize_scrc_transform(is_training):
         return None
 
 
-class InferNet(nn.Module):
+class PredNet(nn.Module):
     def __init__(self,
                  model_name,
                  num_classes,
                  chn_dim,
                  use_pretrained=False):
-        super(InferNet, self).__init__()
+        super(PredNet, self).__init__()
 
         model_name = model_name.lower()
         if model_name == "resnet":
@@ -629,7 +629,7 @@ def data_prep(args):
     return data_loader, data.n_classes, input_size
 
 
-def model_prep(args, classifier, input_size):
+def normflow(args, input_size):
     if args.flow == 'imflow':
         norm_flow = ImplicitFlow
     elif args.flow == 'reflow':
@@ -641,8 +641,6 @@ def model_prep(args, classifier, input_size):
         _left_pad = 0
 
     model = norm_flow(
-        classification=args.task in ['classification', 'hybrid'],
-        classifier=classifier,
         input_size=input_size,
         scale_factor=args.scale_factor,
         shuffle_factor=args.shuffle_factor,

@@ -22,8 +22,6 @@ class ResidualFlow(nn.Module):
 
     def __init__(
         self,
-        classification,
-        classifier,
         input_size,
         scale_factor,
         shuffle_factor,
@@ -60,8 +58,6 @@ class ResidualFlow(nn.Module):
         right_pad=0
     ):
         super(ResidualFlow, self).__init__()
-        if classification:
-            self.classifier = classifier
         self.scale_factor = scale_factor
         self.shuffle_factor = shuffle_factor
         self.couple_label = couple_label
@@ -209,7 +205,7 @@ class ResidualFlow(nn.Module):
                 output_sizes.append((n, c, h, w))
         return tuple(output_sizes)
 
-    def forward(self, x, y=None, logpx=None, inverse=False, classify=False, restore=False):
+    def forward(self, x, y=None, logpx=None, inverse=False, restore=False):
         if inverse:
             assert torch.is_tensor(x)
             if len(x.shape) == 1:
@@ -221,9 +217,6 @@ class ResidualFlow(nn.Module):
                 x = torch.cat((x,
                                self.fixed_z[:x.shape[0], :-x.shape[1]].to(x)), dim=1)
             return self.inverse(x, None)
-
-        if classify:
-            logits = self.classifier(x)
 
         x = self._get_input(x, y)
 
@@ -242,10 +235,8 @@ class ResidualFlow(nn.Module):
         out.append(x)
         out = torch.cat([o.view(o.size()[0], -1) for o in out], 1)
         output = out if logpx is None else (out, logpx)
-        if classify:
-            return output, logits
-        else:
-            return output
+
+        return output
 
     def inverse(self, z, logpz=None):
         if self.factor_out:
