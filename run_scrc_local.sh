@@ -1,4 +1,4 @@
-deepspeed --include=localhost:0 --master_port 50123 train_re.py --cuda  --deepspeed_config config_re.json \
+deepspeed --include=localhost:0 --master_port 50123 train_re.py --cuda  --deepspeed_config config_scrc.json \
     --dataset scrc --dataroot /home/histopath/Data/SCRC_nuclei --save 'experiments/' \
     --flow reflow --classifier resnet --shuffle-factor 2 --scale-factor 0.25 \
     --env '012' --imagesize 256 --batchsize 16 \

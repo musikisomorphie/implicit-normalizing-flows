@@ -214,10 +214,12 @@ def compute_loss(x,
     grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
     grad_clss = torch.pixel_unshuffle(grad_clss, 2)
 
+    x = x[:16]
+    y = y[:16]
+    grad_clss = grad_clss[:16]
     z, delta_logp = model_symm(x, y, [0, grad_clss])
     delta_logp, tot_grad = delta_logp
     grad_mean = tot_grad.norm(p=1, dim=1).mean()
-    # print(grad_mean.item())
     if msk_len_z:
         z = z[:, msk_len_z:]
 
@@ -294,7 +296,7 @@ def train(args,
         total += y.size(0)
         correct += predicted.eq(y).sum().item()
 
-        (crossent + grad_mean + bpd).backward()
+        (crossent + bpd).backward()
         optim_clss.step()
 
         if global_itr % args.update_freq == args.update_freq - 1:
@@ -320,6 +322,7 @@ def train(args,
         end = time.time()
 
         if i % args.print_freq == 0:
+            print('mean of the gradient {}'.format(grad_mean))
             s = (
                 'Epoch: [{0}][{1}/{2}] | Time {batch_time.val:.3f} | '
                 'GradNorm {gnorm_meter.avg:.2f}'.format(
@@ -452,7 +455,8 @@ def visualize(model_clss,
               cls_num_y=1,
               **save_kwargs):
     model_symm.eval()
-
+    real_imgs = real_imgs[:16]
+    real_labs = real_labs[:16]
     with torch.no_grad():
         # reconstructed real images
         real_z = model_symm(real_imgs, real_labs)
@@ -590,7 +594,8 @@ def main(args):
     logger.info('Creating model.')
     classifier = utils.PredNet(args.classifier, cls_num_y, input_size[1])
     param_clss = filter(lambda p: p.requires_grad, classifier.parameters())
-    optim_clss = optim.Adam(classifier.parameters(), lr=args.lr)
+    optim_clss = optim.Adam(classifier.parameters(),
+                            lr=args.lr, weight_decay=1e-5)
     model_clss, optim_clss, _, __ = deepspeed.initialize(args=args,
                                                          model=classifier,
                                                          model_parameters=param_clss,

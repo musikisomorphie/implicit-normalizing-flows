@@ -80,7 +80,7 @@ class PredNet(nn.Module):
                  model_name,
                  num_classes,
                  chn_dim,
-                 use_pretrained=False):
+                 use_pretrained=True):
         super(PredNet, self).__init__()
 
         model_name = model_name.lower()
