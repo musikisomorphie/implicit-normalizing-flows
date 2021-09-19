@@ -17,6 +17,9 @@ import lib.optimizers as optim
 from lib.lr_scheduler import CosineAnnealingWarmRestarts
 from tqdm import tqdm
 
+from transformers import (get_linear_schedule_with_warmup,
+                          get_cosine_schedule_with_warmup)
+
 BERN_id = {1: (0, 0, 255),
            2: (255, 0, 0),
            3: (0, 128, 0)}
@@ -251,6 +254,7 @@ def train(args,
           trn_loader,
           logger,
           ema,
+          scheduler,
           msk_len_z=0,
           cls_num_y=1):
 
@@ -298,6 +302,7 @@ def train(args,
 
         (crossent + bpd).backward()
         optim_clss.step()
+        scheduler.step()
 
         if global_itr % args.update_freq == args.update_freq - 1:
             if args.update_freq > 1:
@@ -610,10 +615,14 @@ def main(args):
                                                          optimizer=optim_symm)
     criterion = torch.nn.CrossEntropyLoss()
 
-    scheduler = None
+    # scheduler = None
     # if args.scheduler:
     #     scheduler = CosineAnnealingWarmRestarts(
     #         optimizer, 20, T_mult=2, last_epoch=args.begin_epoch - 1)
+    scheduler = get_cosine_schedule_with_warmup(
+        optim_clss,
+        num_training_steps=len(trn_loader) * args.nepochs,
+        num_warmup_steps=5415)
 
     ords = []
     last_checkpoints = []
@@ -635,6 +644,7 @@ def main(args):
               trn_loader,
               logger,
               ema,
+              scheduler,
               msk_len_z,
               cls_num_y)
 
@@ -656,9 +666,6 @@ def main(args):
                            'VAL',
                            msk_len_z,
                            cls_num_y)
-
-        if args.scheduler and scheduler is not None:
-            scheduler.step()
 
         # if val_bpd < best_val_bpd:
         #     best_val_bpd = val_bpd
