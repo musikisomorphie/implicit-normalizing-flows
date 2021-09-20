@@ -631,7 +631,7 @@ def main(args):
     ords = []
     last_checkpoints = []
     lipschitz_constants = []
-    best_val_bpd = math.inf
+    best_val_bpd = -1e4
     ema = utils.ExponentialMovingAverage(model_symm)
     msk_len_z = 0
     if args.dataset == 'scrc' and args.inp == 'mi':
@@ -671,7 +671,7 @@ def main(args):
                            msk_len_z,
                            cls_num_y)
 
-        if val_bpd < best_val_bpd:
+        if val_bpd > best_val_bpd:
             msg = 'Save the checkout points for the best evaluation results \n'
             msg += 'VAL: {:.4%} '.format(val_bpd)
             best_val_bpd = val_bpd

@@ -43,12 +43,12 @@ def initialize_rxrx1_transform(is_training):
             t_random_rotation,
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            t_standardize,
+            # t_standardize,
         ]
     else:
         transforms_ls = [
             transforms.ToTensor(),
-            t_standardize,
+            # t_standardize,
         ]
     transform = transforms.Compose(transforms_ls)
     return transform
@@ -120,7 +120,27 @@ class PredNet(nn.Module):
 
         self.backbone = model_ft
 
+    def standardize(self, x: torch.Tensor) -> torch.Tensor:
+        mean = x.mean(dim=(2, 3)).detach().clone()
+        std = x.std(dim=(2, 3)).detach().clone()
+        std[std == 0.] = 1.
+        # mean = torch.as_tensor(mean).to(x)
+        # std = torch.as_tensor(std).to(x)
+        mean = mean.unsqueeze(-1).unsqueeze(-1)
+        std = std.unsqueeze(-1).unsqueeze(-1)
+        # if (std == 0).any():
+        #     raise ValueError(
+        #         'std evaluated to zero after conversion to {}, leading to division by zero.'.format(dtype))
+        # if mean.ndim == 1:
+        #     mean = mean.view(-1, 1, 1)
+        # if std.ndim == 1:
+        #     std = std.view(-1, 1, 1)
+        # x.sub_(mean).div_(std)
+        # print(x.shape, mean.shape, std.shape)
+        return (x - mean) / std
+
     def forward(self, x):
+        x = self.standardize(x)
         x = self.backbone(x)
         return x
 
