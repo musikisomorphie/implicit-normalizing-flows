@@ -212,35 +212,34 @@ def compute_loss(x,
         grad_clss = torch.autograd.grad(outputs=crossent,
                                         inputs=x,
                                         retain_graph=is_train)[0]
+        grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
+        grad_clss = torch.pixel_unshuffle(grad_clss, 2)
+
+        x = x[:8]
+        y = y[:8]
+        grad_clss = grad_clss[:8]
+        z, delta_logp = model_symm(x, y, [0, grad_clss])
+        delta_logp, tot_grad = delta_logp
+        grad_mean = tot_grad.norm(p=1, dim=1).mean()
+        if msk_len_z:
+            z = z[:, msk_len_z:]
+
+        # log p(z)
+        logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
+
+        # log p(x)
+        logpx = logpz - beta * delta_logp - \
+            np.log(nvals) * np.prod(z.shape[1:])
+
+        bits_per_dim = - torch.mean(logpx) / \
+            np.prod(z.shape[1:]) / np.log(2)
+
+        logpz = torch.mean(logpz).detach()
+
+        delta_logp = torch.mean(-delta_logp).detach()
+        return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, grad_mean
     else:
-        grad_clss = torch.ones_like(x)
-    grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
-    grad_clss = torch.pixel_unshuffle(grad_clss, 2)
-
-    x = x[:8]
-    y = y[:8]
-    grad_clss = grad_clss[:8]
-    z, delta_logp = model_symm(x, y, [0, grad_clss])
-    delta_logp, tot_grad = delta_logp
-    grad_mean = tot_grad.norm(p=1, dim=1).mean()
-    if msk_len_z:
-        z = z[:, msk_len_z:]
-
-    # log p(z)
-    logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
-
-    # log p(x)
-    logpx = logpz - beta * delta_logp - \
-        np.log(nvals) * np.prod(z.shape[1:])
-
-    bits_per_dim = - torch.mean(logpx) / \
-        np.prod(z.shape[1:]) / np.log(2)
-
-    logpz = torch.mean(logpz).detach()
-
-    delta_logp = torch.mean(-delta_logp).detach()
-
-    return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, grad_mean
+        return None, logits_tensor, None, None, crossent, None
 
 
 def train(args,
@@ -392,9 +391,6 @@ def evaluate(args,
     bpd_meter = utils.AverageMeter()
     ce_meter = utils.AverageMeter()
 
-    # if ema is not None:
-    #     ema.swap()
-
     utils.update_lipschitz(model_symm)
 
     model_clss.eval()
@@ -408,14 +404,13 @@ def evaluate(args,
         x = x.to(device)
         y = y.to(device)
         bpd, logits, _, _, loss, _ = compute_loss(x, y / cls_num_y, y,
-                                                  model_clss, model_symm,
-                                                  criterion,
-                                                  msk_len_z,
-                                                  is_train=False)
-        bpd_meter.update(bpd.item(), x.size(0))
+                                                model_clss, model_symm,
+                                                criterion,
+                                                msk_len_z,
+                                                is_train=False)
+        # bpd_meter.update(bpd.item(), x.size(0))
 
         if args.task in ['classification', 'hybrid']:
-            # loss = criterion(logits, y)
             ce_meter.update(loss.item(), x.size(0))
             _, predicted = logits.max(1)
             total += y.size(0)
@@ -438,14 +433,8 @@ def evaluate(args,
                       **save_kwargs)
 
     val_time = time.time() - start
-
-    # if ema is not None:
-    #     ema.swap()
-    s = '{} | Epoch: [{}]\tTime {:.2f} | bits/dim {bpd_meter.avg:.4f}'.format(
-        phase, epoch, val_time, bpd_meter=bpd_meter)
-    if args.task in ['classification', 'hybrid']:
-        s += ' | CE {:.4f} | Acc {:.4%}'.format(
-            ce_meter.avg, correct / total)
+    s = '{} | Epoch: [{}]\tTime {:.2f} | Acc {:.4%}'.format(
+        phase, epoch, val_time,  correct / total)
     logger.info(s)
     return correct / total
 
@@ -669,7 +658,8 @@ def main(args):
                            ema if args.ema_val else None,
                            'VAL',
                            msk_len_z,
-                           cls_num_y)
+                           cls_num_y,
+                           is_visualize=False)
 
         if val_bpd > best_val_bpd:
             msg = 'Save the checkout points for the best evaluation results \n'
