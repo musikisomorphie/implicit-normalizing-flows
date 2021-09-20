@@ -217,9 +217,9 @@ def compute_loss(x,
     grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
     grad_clss = torch.pixel_unshuffle(grad_clss, 2)
 
-    x = x[:16]
-    y = y[:16]
-    grad_clss = grad_clss[:16]
+    x = x[:8]
+    y = y[:8]
+    grad_clss = grad_clss[:8]
     z, delta_logp = model_symm(x, y, [0, grad_clss])
     delta_logp, tot_grad = delta_logp
     grad_mean = tot_grad.norm(p=1, dim=1).mean()
@@ -271,8 +271,8 @@ def train(args,
         utils.update_lr(optim_symm, global_itr,
                         args.warmup_iters, args.lr)
 
-        optim_clss.zero_grad()
-        optim_symm.zero_grad()
+        model_clss.zero_grad()
+        model_symm.zero_grad()
 
         x = x.to(device)
         y = y.to(device)
@@ -300,10 +300,11 @@ def train(args,
         total += y.size(0)
         correct += predicted.eq(y).sum().item()
 
-        (crossent + bpd).backward()
+        model_clss.backward(crossent)
         optim_clss.step()
         scheduler.step()
 
+        model_symm.backward(bpd)
         if global_itr % args.update_freq == args.update_freq - 1:
             if args.update_freq > 1:
                 with torch.no_grad():
@@ -446,7 +447,7 @@ def evaluate(args,
         s += ' | CE {:.4f} | Acc {:.4%}'.format(
             ce_meter.avg, correct / total)
     logger.info(s)
-    return bpd_meter.avg
+    return correct / total
 
 
 def visualize(model_clss,
@@ -460,8 +461,8 @@ def visualize(model_clss,
               cls_num_y=1,
               **save_kwargs):
     model_symm.eval()
-    real_imgs = real_imgs[:16]
-    real_labs = real_labs[:16]
+    real_imgs = real_imgs[:8]
+    real_labs = real_labs[:8]
     with torch.no_grad():
         # reconstructed real images
         real_z = model_symm(real_imgs, real_labs)
@@ -593,7 +594,10 @@ def main(args):
 
     logger.info('Loading dataset {}'.format(args.dataset))
     data_loader, cls_num_y, input_size = utils.data_prep(args)
-    trn_loader, val_loader, tst_loader = data_loader
+    if args.dataset == 'rxrx1':
+        trn_loader, val_loader, tst_loader, itst_loader = data_loader
+    elif args.dataset == 'scrc':
+        trn_loader, val_loader, tst_loader = data_loader
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
     logger.info('Creating model.')
@@ -667,28 +671,46 @@ def main(args):
                            msk_len_z,
                            cls_num_y)
 
-        # if val_bpd < best_val_bpd:
-        #     best_val_bpd = val_bpd
-        #     utils.save_checkpoint({
-        #         'state_dict': model.module.state_dict(),
-        #         'optimizer_state_dict': optimizer.state_dict(),
-        #         'args': args,
-        #         'ema': ema,
-        #         'val_bpd': val_bpd,
-        #     }, os.path.join(args.save, 'models'), epoch, last_checkpoints, num_checkpoints=5)
+        if val_bpd < best_val_bpd:
+            msg = 'Save the checkout points for the best evaluation results \n'
+            msg += 'VAL: {:.4%} '.format(val_bpd)
+            best_val_bpd = val_bpd
+            torch.save(model_clss.state_dict(),
+                       args.save / 'classifier_{}.pth'.format(epoch))
+            torch.save(model_symm.state_dict(),
+                       args.save / 'symmetrier_{}.pth'.format(epoch))
 
-        # torch.save({
-        #     'state_dict': model.module.state_dict(),
-        #     'optimizer_state_dict': optimizer.state_dict(),
-        #     'args': args,
-        #     'ema': ema,
-        #     'val_bpd': val_bpd,
-        # }, os.path.join(args.save, 'models', 'most_recent.pth'))
+            tst_bpd = evaluate(args,
+                               device,
+                               epoch,
+                               model_clss,
+                               model_symm,
+                               criterion,
+                               tst_loader,
+                               logger,
+                               ema if args.ema_val else None,
+                               'TST',
+                               msk_len_z,
+                               cls_num_y,
+                               is_visualize=False)
+            msg += 'TEST: {:.4%} '.format(tst_bpd)
 
-        # if args.ema_val:
-        #     tst_bpd = evaluate(epoch, model, tst_loader[1], 'TST', ema)
-        # else:
-        #     tst_bpd = evaluate(epoch, model, tst_loader[1], 'TST')
+            if args.dataset == 'rxrx1':
+                itst_bpd = evaluate(args,
+                                    device,
+                                    epoch,
+                                    model_clss,
+                                    model_symm,
+                                    criterion,
+                                    itst_loader,
+                                    logger,
+                                    ema if args.ema_val else None,
+                                    'ITST',
+                                    msk_len_z,
+                                    cls_num_y,
+                                    is_visualize=False)
+                msg += 'ID_TEST: {:.4%} '.format(itst_bpd)
+            logger.info(msg)
 
     torch.cuda.synchronize()
 

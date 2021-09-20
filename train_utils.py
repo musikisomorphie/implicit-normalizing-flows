@@ -587,6 +587,7 @@ def data_prep(args):
         dataset_kwargs = dict()
         split_scheme = 'official'
         num_chn = 3
+        eval_data = ['val', 'test', 'id_test']
     elif args.dataset == 'scrc':
         trn_trans = initialize_scrc_transform(True)
         eval_trans = initialize_scrc_transform(False)
@@ -599,6 +600,7 @@ def data_prep(args):
         dataset_kwargs = {'img_chn': img_chn}
         split_scheme = args.env
         num_chn = len(img_chn)
+        eval_data = ['val', 'test']
 
     data_loader = []
     loader_kwargs = {'num_workers': args.nworkers}
@@ -613,7 +615,8 @@ def data_prep(args):
                                         trn_data,
                                         batch_size=args.batchsize,
                                         **loader_kwargs))
-    for evl in ('val', 'test'):
+
+    for evl in eval_data:
         sub_data = data.get_subset(evl,
                                    transform=eval_trans)
         data_loader.append(get_eval_loader('standard',
