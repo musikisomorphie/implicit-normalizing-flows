@@ -205,22 +205,23 @@ def compute_loss(x,
                  beta=1.0,
                  nvals=256,
                  is_train=True):
-    x.requires_grad = True
-    logits_tensor = model_clss(x)
-    crossent = criterion(logits_tensor, lab)
     if is_train:
-        grad_clss = torch.autograd.grad(outputs=crossent,
-                                        inputs=x,
-                                        retain_graph=is_train)[0]
-        grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
-        grad_clss = torch.pixel_unshuffle(grad_clss, 2)
+        # grad_clss = torch.autograd.grad(outputs=crossent,
+        #                                 inputs=x,
+        #                                 retain_graph=is_train)[0]
+        # grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
+        # grad_clss = torch.pixel_unshuffle(grad_clss, 2)
 
-        x = x[:8]
-        y = y[:8]
-        grad_clss = grad_clss[:8]
+        # x = x[:num_symm]
+        # y = y[:num_symm]
+        # grad_clss = grad_clss[:num_symm]
+        # z, delta_logp = model_symm(x, y, [0, grad_clss])
+        # delta_logp, tot_grad = delta_logp
+        # grad_mean = tot_grad.norm(p=1, dim=1).mean()
+        grad_clss = torch.randn_like(x)
+        grad_clss = torch.pixel_unshuffle(grad_clss, 2)
         z, delta_logp = model_symm(x, y, [0, grad_clss])
         delta_logp, tot_grad = delta_logp
-        grad_mean = tot_grad.norm(p=1, dim=1).mean()
         if msk_len_z:
             z = z[:, msk_len_z:]
 
@@ -237,9 +238,23 @@ def compute_loss(x,
         logpz = torch.mean(logpz).detach()
 
         delta_logp = torch.mean(-delta_logp).detach()
-        return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, grad_mean
+
+        with torch.no_grad():
+            recn_x = model_symm(
+                z + 0.5 * torch.randn_like(z), inverse=True)
+            recn_x = rev_proc_img(recn_x,
+                                  lab,
+                                  2,
+                                  False)
+        x = torch.cat((x, recn_x.detach().clone()), dim=0)
+        lab = torch.cat((lab, lab), dim=0)
+        logits_tensor = model_clss(x)
+        crossent = criterion(logits_tensor, lab)
+        return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, lab
     else:
-        return None, logits_tensor, None, None, crossent, None
+        logits_tensor = model_clss(x)
+        crossent = criterion(logits_tensor, lab)
+        return None, logits_tensor, None, None, crossent, lab
 
 
 def train(args,
@@ -278,10 +293,10 @@ def train(args,
 
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
-        bpd, logits, logpz, neg_delta_logp, crossent, grad_mean = compute_loss(x, y / cls_num_y, y,
-                                                                               model_clss, model_symm,
-                                                                               criterion,
-                                                                               msk_len_z, beta)
+        bpd, logits, logpz, neg_delta_logp, crossent, y = compute_loss(x, y / cls_num_y, y,
+                                                                       model_clss, model_symm,
+                                                                       criterion,
+                                                                       msk_len_z, beta)
         # print(tot_grad.shape, tot_grad.abs().mean())
         # crossent = criterion(logits, y)
 
@@ -327,7 +342,6 @@ def train(args,
         end = time.time()
 
         if i % args.print_freq == 0:
-            print('mean of the gradient {}'.format(grad_mean))
             s = (
                 'Epoch: [{0}][{1}/{2}] | Time {batch_time.val:.3f} | '
                 'GradNorm {gnorm_meter.avg:.2f}'.format(
@@ -404,10 +418,10 @@ def evaluate(args,
         x = x.to(device)
         y = y.to(device)
         bpd, logits, _, _, loss, _ = compute_loss(x, y / cls_num_y, y,
-                                                model_clss, model_symm,
-                                                criterion,
-                                                msk_len_z,
-                                                is_train=False)
+                                                  model_clss, model_symm,
+                                                  criterion,
+                                                  msk_len_z,
+                                                  is_train=False)
         # bpd_meter.update(bpd.item(), x.size(0))
 
         if args.task in ['classification', 'hybrid']:
@@ -459,11 +473,13 @@ def visualize(model_clss,
             real_imgs = F.interpolate(real_imgs,
                                       scale_factor=scale_factor)
 
-        recn_imgs = model_symm(real_z, inverse=True)
+        recn_imgs = model_symm(
+            real_z + 0.5 * torch.randn_like(real_z), inverse=True)
         recn_imgs = rev_proc_img(recn_imgs,
                                  real_labs,
                                  shuffle_factor,
                                  couple_label)
+        print((recn_imgs - real_imgs).abs().mean())
 
         intp_z = linspace(real_z[0], real_z[-1], real_z.shape[0])
         intp_imgs = model_symm(intp_z, inverse=True)
@@ -601,7 +617,7 @@ def main(args):
 
     symmetrier = utils.normflow(args, input_size)
     param_symm = filter(lambda p: p.requires_grad, symmetrier.parameters())
-    optim_symm = optim.Adam(symmetrier.parameters(), lr=args.lr)
+    optim_symm = optim.Adam(param_symm, lr=args.lr)
     model_symm, optim_symm, _, __ = deepspeed.initialize(args=args,
                                                          model=symmetrier,
                                                          model_parameters=param_symm,
