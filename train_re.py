@@ -241,7 +241,7 @@ def compute_loss(x,
 
         with torch.no_grad():
             recn_x = model_symm(
-                z[:36] + 0.5 * torch.randn_like(z[:36]), inverse=True)
+                z[:36] + 0.1 * torch.randn_like(z[:36]), inverse=True)
             recn_x = rev_proc_img(recn_x,
                                   lab,
                                   2,
@@ -474,7 +474,7 @@ def visualize(model_clss,
                                       scale_factor=scale_factor)
 
         recn_imgs = model_symm(
-            real_z + 0.5 * torch.randn_like(real_z), inverse=True)
+            real_z + 0.1 * torch.randn_like(real_z), inverse=True)
         recn_imgs = rev_proc_img(recn_imgs,
                                  real_labs,
                                  shuffle_factor,
