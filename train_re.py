@@ -204,6 +204,7 @@ def compute_loss(x,
                  msk_len_z=0,
                  beta=1.0,
                  nvals=256,
+                 num_symm=16,
                  is_train=True):
     if is_train:
         # grad_clss = torch.autograd.grad(outputs=crossent,
@@ -218,9 +219,9 @@ def compute_loss(x,
         # z, delta_logp = model_symm(x, y, [0, grad_clss])
         # delta_logp, tot_grad = delta_logp
         # grad_mean = tot_grad.norm(p=1, dim=1).mean()
-        grad_clss = torch.randn_like(x)
+        grad_clss = torch.randn_like(x[:num_symm])
         grad_clss = torch.pixel_unshuffle(grad_clss, 2)
-        z, delta_logp = model_symm(x, y, [0, grad_clss])
+        z, delta_logp = model_symm(x[:num_symm], y[:num_symm], [0, grad_clss])
         delta_logp, tot_grad = delta_logp
         if msk_len_z:
             z = z[:, msk_len_z:]
@@ -241,13 +242,13 @@ def compute_loss(x,
 
         with torch.no_grad():
             recn_x = model_symm(
-                z[:36] + 0.1 * torch.randn_like(z[:36]), inverse=True)
+                z + 0.1 * torch.randn_like(z), inverse=True)
             recn_x = rev_proc_img(recn_x,
                                   lab,
                                   2,
                                   False)
         x = torch.cat((x, recn_x.detach().clone()), dim=0)
-        lab = torch.cat((lab, lab[:36]), dim=0)
+        lab = torch.cat((lab, lab[:num_symm]), dim=0)
         logits_tensor = model_clss(x)
         crossent = criterion(logits_tensor, lab)
         return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, lab
