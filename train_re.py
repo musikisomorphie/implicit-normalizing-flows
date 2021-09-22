@@ -241,13 +241,13 @@ def compute_loss(x,
 
         with torch.no_grad():
             recn_x = model_symm(
-                z + 0.5 * torch.randn_like(z), inverse=True)
+                z[:36] + 0.5 * torch.randn_like(z[:36]), inverse=True)
             recn_x = rev_proc_img(recn_x,
                                   lab,
                                   2,
                                   False)
         x = torch.cat((x, recn_x.detach().clone()), dim=0)
-        lab = torch.cat((lab, lab), dim=0)
+        lab = torch.cat((lab, lab[:36]), dim=0)
         logits_tensor = model_clss(x)
         crossent = criterion(logits_tensor, lab)
         return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, lab
@@ -632,6 +632,8 @@ def main(args):
         optim_clss,
         num_training_steps=len(trn_loader) * args.nepochs,
         num_warmup_steps=5415)
+    scheduler.step_every_batch = True
+    scheduler.use_metric = False
 
     ords = []
     last_checkpoints = []
