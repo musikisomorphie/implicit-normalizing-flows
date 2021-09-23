@@ -684,36 +684,37 @@ def main(args):
             torch.save(model_symm.state_dict(),
                        args.save / 'symmetrier_{}.pth'.format(epoch))
 
-            tst_bpd = evaluate(args,
-                               device,
-                               epoch,
-                               model_clss,
-                               model_symm,
-                               criterion,
-                               tst_loader,
-                               logger,
-                               ema if args.ema_val else None,
-                               'TST',
-                               msk_len_z,
-                               cls_num_y,
-                               is_visualize=False)
-            msg += 'TEST: {:.4%} '.format(tst_bpd)
+            if epoch >= 50:
+                tst_bpd = evaluate(args,
+                                device,
+                                epoch,
+                                model_clss,
+                                model_symm,
+                                criterion,
+                                tst_loader,
+                                logger,
+                                ema if args.ema_val else None,
+                                'TST',
+                                msk_len_z,
+                                cls_num_y,
+                                is_visualize=False)
+                msg += 'TEST: {:.4%} '.format(tst_bpd)
 
-            if args.dataset == 'rxrx1':
-                itst_bpd = evaluate(args,
-                                    device,
-                                    epoch,
-                                    model_clss,
-                                    model_symm,
-                                    criterion,
-                                    itst_loader,
-                                    logger,
-                                    ema if args.ema_val else None,
-                                    'ITST',
-                                    msk_len_z,
-                                    cls_num_y,
-                                    is_visualize=False)
-                msg += 'ID_TEST: {:.4%} '.format(itst_bpd)
+            # if args.dataset == 'rxrx1':
+            #     itst_bpd = evaluate(args,
+            #                         device,
+            #                         epoch,
+            #                         model_clss,
+            #                         model_symm,
+            #                         criterion,
+            #                         itst_loader,
+            #                         logger,
+            #                         ema if args.ema_val else None,
+            #                         'ITST',
+            #                         msk_len_z,
+            #                         cls_num_y,
+            #                         is_visualize=False)
+            #     msg += 'ID_TEST: {:.4%} '.format(itst_bpd)
             logger.info(msg)
 
     torch.cuda.synchronize()
