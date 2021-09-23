@@ -15,7 +15,6 @@ class SqueezeLayer(nn.Module):
         if logpx is None:
             return squeeze_x
         else:
-            logpx[1] = torch.pixel_unshuffle(logpx[1], self.shuffle_factor)
             return squeeze_x, logpx
 
     def inverse(self, y, logpy=None):
@@ -23,5 +22,4 @@ class SqueezeLayer(nn.Module):
         if logpy is None:
             return unsqueeze_y
         else:
-            logpy[1] = torch.pixel_shuffle(logpy[1], self.shuffle_factor)
             return unsqueeze_y, logpy

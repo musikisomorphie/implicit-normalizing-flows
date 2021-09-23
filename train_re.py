@@ -64,6 +64,10 @@ parser.add_argument('--inp', type=str,
 parser.add_argument('--right-pad', type=int, default=0)
 parser.add_argument('--imagesize', type=int, default=256)
 parser.add_argument('--batchsize', help='Minibatch size', type=int, default=32)
+parser.add_argument('--symm-batchsize',
+                    help='Minibatch size of the normalizing flow augmented images',
+                    type=int,
+                    default=8)
 
 parser.add_argument('--nepochs', type=int, default=100)
 parser.add_argument('--nblocks', type=str, default='16-16-16')
@@ -204,25 +208,12 @@ def compute_loss(x,
                  msk_len_z=0,
                  beta=1.0,
                  nvals=256,
-                 num_symm=16,
+                 num_symm=8,
+                 shuffle_factor=2,
                  is_train=True):
     if is_train:
-        # grad_clss = torch.autograd.grad(outputs=crossent,
-        #                                 inputs=x,
-        #                                 retain_graph=is_train)[0]
-        # grad_clss = F.interpolate(grad_clss, scale_factor=0.25)
-        # grad_clss = torch.pixel_unshuffle(grad_clss, 2)
-
-        # x = x[:num_symm]
-        # y = y[:num_symm]
-        # grad_clss = grad_clss[:num_symm]
-        # z, delta_logp = model_symm(x, y, [0, grad_clss])
-        # delta_logp, tot_grad = delta_logp
-        # grad_mean = tot_grad.norm(p=1, dim=1).mean()
-        grad_clss = torch.randn_like(x[:num_symm])
-        grad_clss = torch.pixel_unshuffle(grad_clss, 2)
-        z, delta_logp = model_symm(x[:num_symm], y[:num_symm], [0, grad_clss])
-        delta_logp, tot_grad = delta_logp
+        lab = torch.cat((lab, lab[:num_symm]), dim=0)
+        z, delta_logp = model_symm(x[:num_symm], y[:num_symm], 0)
         if msk_len_z:
             z = z[:, msk_len_z:]
 
@@ -242,13 +233,12 @@ def compute_loss(x,
 
         with torch.no_grad():
             recn_x = model_symm(
-                z + 0.1 * torch.randn_like(z), inverse=True)
+                z + 0.2 * torch.randn_like(z), inverse=True)
             recn_x = rev_proc_img(recn_x,
                                   lab,
-                                  2,
+                                  shuffle_factor,
                                   False)
         x = torch.cat((x, recn_x.detach().clone()), dim=0)
-        lab = torch.cat((lab, lab[:num_symm]), dim=0)
         logits_tensor = model_clss(x)
         crossent = criterion(logits_tensor, lab)
         return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, lab
@@ -297,7 +287,10 @@ def train(args,
         bpd, logits, logpz, neg_delta_logp, crossent, y = compute_loss(x, y / cls_num_y, y,
                                                                        model_clss, model_symm,
                                                                        criterion,
-                                                                       msk_len_z, beta)
+                                                                       msk_len_z, beta,
+                                                                       num_symm=args.symm_batchsize,
+                                                                       shuffle_factor=args.shuffle_factor,
+                                                                       is_train=True)
         # print(tot_grad.shape, tot_grad.abs().mean())
         # crossent = criterion(logits, y)
 
@@ -422,6 +415,7 @@ def evaluate(args,
                                                   model_clss, model_symm,
                                                   criterion,
                                                   msk_len_z,
+                                                  shuffle_factor=args.shuffle_factor,
                                                   is_train=False)
         # bpd_meter.update(bpd.item(), x.size(0))
 
@@ -475,7 +469,7 @@ def visualize(model_clss,
                                       scale_factor=scale_factor)
 
         recn_imgs = model_symm(
-            real_z + 0.1 * torch.randn_like(real_z), inverse=True)
+            real_z + 0.2 * torch.randn_like(real_z), inverse=True)
         recn_imgs = rev_proc_img(recn_imgs,
                                  real_labs,
                                  shuffle_factor,
@@ -557,7 +551,7 @@ def visualize(model_clss,
 def main(args):
     exp_config = ('{}_{}_{}_{}_{}_{}_'
                   '{}_{}_{}_{}_{}_{}_'
-                  '{}_{}_{}').format(args.dataset,
+                  '{}_{}_{}_{}').format(args.dataset,
                                      args.classifier,
                                      args.flow,
                                      args.shuffle_factor,
@@ -571,7 +565,8 @@ def main(args):
                                      args.nblocks,
                                      args.couple_label,
                                      args.factor_out,
-                                     args.actnorm)
+                                     args.actnorm,
+                                     args.symm_batchsize)
     args.save = pathlib.Path(args.save) / exp_config
     (args.save / 'imgs').mkdir(parents=True, exist_ok=True)
     # logger

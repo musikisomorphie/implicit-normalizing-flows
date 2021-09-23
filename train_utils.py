@@ -40,7 +40,7 @@ def initialize_rxrx1_transform(is_training):
 
     if is_training:
         transforms_ls = [
-            transforms.Resize([128, 128]),
+            # transforms.Resize([128, 128]),
             t_random_rotation,
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
@@ -48,7 +48,7 @@ def initialize_rxrx1_transform(is_training):
         ]
     else:
         transforms_ls = [
-            transforms.Resize([128, 128]),
+            # transforms.Resize([128, 128]),
             transforms.ToTensor(),
             # t_standardize,
         ]
