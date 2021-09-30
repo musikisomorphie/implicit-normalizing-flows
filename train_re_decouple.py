@@ -134,7 +134,7 @@ parser.add_argument('--optimizer', type=str,
                     choices=['adam', 'adamax', 'rmsprop', 'sgd'], default='adam')
 parser.add_argument('--scheduler', type=eval,
                     choices=[True, False], default=False)
-parser.add_argument('--lr', help='Learning rate', type=float, default=1e-3)
+parser.add_argument('--lr', help='Learning rate', type=float, default=2e-4)
 parser.add_argument('--wd', help='Weight decay', type=float, default=0)
 parser.add_argument('--warmup-iters', type=int, default=1000)
 parser.add_argument('--annealing-iters', type=int, default=0)
@@ -163,7 +163,14 @@ deltalogp_meter = utils.RunningAverageMeter(0.97)
 firmom_meter = utils.RunningAverageMeter(0.97)
 secmom_meter = utils.RunningAverageMeter(0.97)
 gnorm_meter = utils.RunningAverageMeter(0.97)
-ce_meter = utils.RunningAverageMeter(0.97)
+
+
+def get_learning_rate(args, epoch, num_interval=4):
+    len_interval = round(args.nepochs / num_interval)
+    cur_lr = (epoch / len_interval -
+              math.floor(epoch / len_interval)) * math.pi / 2.
+    coef = 2 ** (math.floor(epoch / len_interval) + 1)
+    return args.lr * (math.cos(cur_lr) + 1) / coef
 
 
 def linspace(start, stop, num):
@@ -201,82 +208,53 @@ def rev_proc_img(x,
 
 def compute_loss(x,
                  y,
-                 lab,
-                 model_clss,
                  model_symm,
-                 criterion,
                  msk_len_z=0,
                  beta=1.0,
-                 nvals=256,
-                 num_symm=8,
-                 shuffle_factor=2,
-                 is_train=True):
-    if is_train:
-        lab = torch.cat((lab, lab[:num_symm]), dim=0)
-        z, delta_logp = model_symm(x[:num_symm], y[:num_symm], 0)
-        if msk_len_z:
-            z = z[:, msk_len_z:]
+                 nvals=256):
 
-        # log p(z)
-        logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
+    z, delta_logp = model_symm(x, y, 0)
+    if msk_len_z:
+        z = z[:, msk_len_z:]
 
-        # log p(x)
-        logpx = logpz - beta * delta_logp - \
-            np.log(nvals) * np.prod(z.shape[1:])
+    # log p(z)
+    logpz = utils.standard_normal_logprob(z).sum(1, keepdim=True)
 
-        bits_per_dim = - torch.mean(logpx) / \
-            np.prod(z.shape[1:]) / np.log(2)
+    # log p(x)
+    logpx = logpz - beta * delta_logp - \
+        np.log(nvals) * np.prod(z.shape[1:])
 
-        logpz = torch.mean(logpz).detach()
+    bits_per_dim = - torch.mean(logpx) / \
+        np.prod(z.shape[1:]) / np.log(2)
 
-        delta_logp = torch.mean(-delta_logp).detach()
+    logpz = torch.mean(logpz).detach()
 
-        with torch.no_grad():
-            recn_x = model_symm(
-                z + 0.2 * torch.randn_like(z), inverse=True)
-            recn_x = rev_proc_img(recn_x,
-                                  lab,
-                                  shuffle_factor,
-                                  False)
-        x = torch.cat((x, recn_x.detach().clone()), dim=0)
-        logits_tensor = model_clss(x)
-        crossent = criterion(logits_tensor, lab)
-        return bits_per_dim, logits_tensor, logpz, delta_logp, crossent, lab
-    else:
-        logits_tensor = model_clss(x)
-        crossent = criterion(logits_tensor, lab)
-        return None, logits_tensor, None, None, crossent, lab
+    delta_logp = torch.mean(-delta_logp).detach()
+
+    return bits_per_dim, logpz, delta_logp
 
 
 def train(args,
           device,
           epoch,
-          model_clss,
           model_symm,
-          optim_clss,
           optim_symm,
-          criterion,
           trn_loader,
           logger,
           ema,
-          scheduler,
           msk_len_z=0,
           cls_num_y=1):
 
-    model_clss.train()
-    model_symm.train()
-
-    total = 0
-    correct = 0
-
     end = time.time()
 
+    model_symm.train()
     for i, (x, y, meta) in enumerate(trn_loader):
         global_itr = epoch * len(trn_loader) + i
-        utils.update_lr(optim_symm, global_itr,
-                        args.warmup_iters, args.lr)
 
-        model_clss.zero_grad()
+        lr = get_learning_rate(args, epoch + i / len(trn_loader))
+        for parm in optim_symm.param_groups:
+            parm['lr'] = lr
+
         model_symm.zero_grad()
 
         x = x.to(device)
@@ -284,33 +262,19 @@ def train(args,
 
         beta = min(1, global_itr /
                    args.annealing_iters) if args.annealing_iters > 0 else 1.
-        bpd, logits, logpz, neg_delta_logp, crossent, y = compute_loss(x, y / cls_num_y, y,
-                                                                       model_clss, model_symm,
-                                                                       criterion,
-                                                                       msk_len_z, beta,
-                                                                       num_symm=args.symm_batchsize,
-                                                                       shuffle_factor=args.shuffle_factor,
-                                                                       is_train=True)
-        # print(tot_grad.shape, tot_grad.abs().mean())
-        # crossent = criterion(logits, y)
+        bpd, logpz, neg_delta_logp = compute_loss(x,
+                                                  y / cls_num_y,
+                                                  model_symm,
+                                                  msk_len_z,
+                                                  beta)
 
         # update a variety of metrics
         bpd_meter.update(bpd.item())
-        ce_meter.update(crossent.item())
         logpz_meter.update(logpz.item())
         deltalogp_meter.update(neg_delta_logp.item())
         firmom, secmom = utils.estimator_moments(model_symm)
         firmom_meter.update(firmom)
         secmom_meter.update(secmom)
-
-        # compute accuracy.
-        _, predicted = logits.max(1)
-        total += y.size(0)
-        correct += predicted.eq(y).sum().item()
-
-        model_clss.backward(crossent)
-        optim_clss.step()
-        scheduler.step()
 
         model_symm.backward(bpd)
         if global_itr % args.update_freq == args.update_freq - 1:
@@ -337,9 +301,9 @@ def train(args,
 
         if i % args.print_freq == 0:
             s = (
-                'Epoch: [{0}][{1}/{2}] | Time {batch_time.val:.3f} | '
+                'Epoch: [{0}][{1}/{2}] | LR {3} | Time {batch_time.val:.3f} | '
                 'GradNorm {gnorm_meter.avg:.2f}'.format(
-                    epoch, i, len(trn_loader),
+                    epoch, i, len(trn_loader), lr,
                     batch_time=batch_time, gnorm_meter=gnorm_meter
                 )
             )
@@ -354,19 +318,14 @@ def train(args,
                         firmom_meter=firmom_meter, secmom_meter=secmom_meter
                     )
                 )
-
-            if args.task in ['classification', 'hybrid']:
-                s += ' | CE {:.4f} | Acc {:.4%}'.format(
-                    ce_meter.avg, correct / total)
-
             logger.info(s)
+
         if i % args.vis_freq == 0:
             save_kwargs = {'img_path': args.save / 'imgs',
                            'epoch': epoch,
                            'iteration': i,
                            'phase': 'TRN'}
-            visualize(model_clss,
-                      model_symm,
+            visualize(model_symm,
                       x,
                       y / cls_num_y,
                       args.scale_factor,
@@ -381,76 +340,7 @@ def train(args,
         gc.collect()
 
 
-def evaluate(args,
-             device,
-             epoch,
-             model_clss,
-             model_symm,
-             criterion,
-             eval_loader,
-             logger,
-             ema,
-             phase,
-             msk_len_z=0,
-             cls_num_y=1,
-             is_visualize=True):
-    """
-    Evaluates the cross entropy between p_data and p_model.
-    """
-    bpd_meter = utils.AverageMeter()
-    ce_meter = utils.AverageMeter()
-
-    utils.update_lipschitz(model_symm)
-
-    model_clss.eval()
-    model_symm.eval()
-
-    correct = 0
-    total = 0
-
-    start = time.time()
-    for i, (x, y, meta) in enumerate(tqdm(eval_loader)):
-        x = x.to(device)
-        y = y.to(device)
-        bpd, logits, _, _, loss, _ = compute_loss(x, y / cls_num_y, y,
-                                                  model_clss, model_symm,
-                                                  criterion,
-                                                  msk_len_z,
-                                                  shuffle_factor=args.shuffle_factor,
-                                                  is_train=False)
-        # bpd_meter.update(bpd.item(), x.size(0))
-
-        if args.task in ['classification', 'hybrid']:
-            ce_meter.update(loss.item(), x.size(0))
-            _, predicted = logits.max(1)
-            total += y.size(0)
-            correct += predicted.eq(y).sum().item()
-
-        if i % args.vis_freq == 0 and is_visualize:
-            save_kwargs = {'img_path': args.save / 'imgs',
-                           'epoch': epoch,
-                           'iteration': i,
-                           'phase': phase}
-            visualize(model_clss,
-                      model_symm,
-                      x,
-                      y / cls_num_y,
-                      args.scale_factor,
-                      args.shuffle_factor,
-                      args.couple_label,
-                      msk_len_z,
-                      cls_num_y,
-                      **save_kwargs)
-
-    val_time = time.time() - start
-    s = '{} | Epoch: [{}]\tTime {:.2f} | Acc {:.4%}'.format(
-        phase, epoch, val_time,  correct / total)
-    logger.info(s)
-    return correct / total
-
-
-def visualize(model_clss,
-              model_symm,
+def visualize(model_symm,
               real_imgs,
               real_labs,
               scale_factor,
@@ -458,10 +348,11 @@ def visualize(model_clss,
               couple_label,
               msk_len_z=0,
               cls_num_y=1,
+              vis_num=8,
               **save_kwargs):
     model_symm.eval()
-    real_imgs = real_imgs[:8]
-    real_labs = real_labs[:8]
+    real_imgs = real_imgs[:vis_num]
+    real_labs = real_labs[:vis_num]
     with torch.no_grad():
         # reconstructed real images
         real_z = model_symm(real_imgs, real_labs)
@@ -469,6 +360,7 @@ def visualize(model_clss,
             real_imgs = F.interpolate(real_imgs,
                                       scale_factor=scale_factor)
 
+        print('mean {} var {}'.format(torch.mean(real_z), torch.var(real_z)))
         recn_imgs = model_symm(real_z, inverse=True)
         recn_imgs = rev_proc_img(recn_imgs,
                                  real_labs,
@@ -603,16 +495,7 @@ def main(args):
         trn_loader, val_loader, tst_loader = data_loader
     logger.info('Dataset loaded with input size {}.'.format(input_size))
 
-    logger.info('Creating model.')
-    classifier = utils.PredNet(args.classifier, cls_num_y, input_size[1])
-    param_clss = filter(lambda p: p.requires_grad, classifier.parameters())
-    optim_clss = optim.Adam(classifier.parameters(),
-                            lr=args.lr, weight_decay=1e-5)
-    model_clss, optim_clss, _, __ = deepspeed.initialize(args=args,
-                                                         model=classifier,
-                                                         model_parameters=param_clss,
-                                                         optimizer=optim_clss)
-
+    logger.info('Creating deepspeed model.')
     symmetrier = utils.normflow(args, input_size)
     param_symm = filter(lambda p: p.requires_grad, symmetrier.parameters())
     optim_symm = optim.Adam(param_symm, lr=args.lr)
@@ -620,23 +503,10 @@ def main(args):
                                                          model=symmetrier,
                                                          model_parameters=param_symm,
                                                          optimizer=optim_symm)
-    criterion = torch.nn.CrossEntropyLoss()
-
-    # scheduler = None
-    # if args.scheduler:
-    #     scheduler = CosineAnnealingWarmRestarts(
-    #         optimizer, 20, T_mult=2, last_epoch=args.begin_epoch - 1)
-    scheduler = get_cosine_schedule_with_warmup(
-        optim_clss,
-        num_training_steps=len(trn_loader) * args.nepochs,
-        num_warmup_steps=5415)
-    scheduler.step_every_batch = True
-    scheduler.use_metric = False
+    logger.info('Creating deepspeed model done.')
 
     ords = []
-    last_checkpoints = []
     lipschitz_constants = []
-    best_val_bpd = -1e4
     ema = utils.ExponentialMovingAverage(model_symm)
     msk_len_z = 0
     if args.dataset == 'scrc' and args.inp == 'mi':
@@ -645,79 +515,23 @@ def main(args):
         train(args,
               device,
               epoch,
-              model_clss,
               model_symm,
-              optim_clss,
               optim_symm,
-              criterion,
               trn_loader,
               logger,
               ema,
-              scheduler,
               msk_len_z,
               cls_num_y)
 
         lipschitz_constants.append(utils.get_lipschitz_constants(model_symm))
         ords.append(utils.get_ords(model_symm))
+
+        if epoch > 0:
+            torch.save(model_symm.state_dict(),
+                       args.save / 'symmetrier_{}.pth'.format(epoch))
         # logger.info('Lipsh: {}'.format(
         #     utils.pretty_repr(lipschitz_constants[-1])))
         # logger.info('Order: {}'.format(utils.pretty_repr(ords[-1])))
-
-        val_bpd = evaluate(args,
-                           device,
-                           epoch,
-                           model_clss,
-                           model_symm,
-                           criterion,
-                           val_loader,
-                           logger,
-                           ema if args.ema_val else None,
-                           'VAL',
-                           msk_len_z,
-                           cls_num_y,
-                           is_visualize=False)
-
-        if val_bpd > best_val_bpd:
-            msg = 'Save the checkout points for the best evaluation results \n'
-            msg += 'VAL: {:.4%} '.format(val_bpd)
-            best_val_bpd = val_bpd
-            torch.save(model_clss.state_dict(),
-                       args.save / 'classifier_{}.pth'.format(epoch))
-            torch.save(model_symm.state_dict(),
-                       args.save / 'symmetrier_{}.pth'.format(epoch))
-
-            if epoch >= 50:
-                tst_bpd = evaluate(args,
-                                   device,
-                                   epoch,
-                                   model_clss,
-                                   model_symm,
-                                   criterion,
-                                   tst_loader,
-                                   logger,
-                                   ema if args.ema_val else None,
-                                   'TST',
-                                   msk_len_z,
-                                   cls_num_y,
-                                   is_visualize=False)
-                msg += 'TEST: {:.4%} '.format(tst_bpd)
-
-            # if args.dataset == 'rxrx1':
-            #     itst_bpd = evaluate(args,
-            #                         device,
-            #                         epoch,
-            #                         model_clss,
-            #                         model_symm,
-            #                         criterion,
-            #                         itst_loader,
-            #                         logger,
-            #                         ema if args.ema_val else None,
-            #                         'ITST',
-            #                         msk_len_z,
-            #                         cls_num_y,
-            #                         is_visualize=False)
-            #     msg += 'ID_TEST: {:.4%} '.format(itst_bpd)
-            logger.info(msg)
 
     torch.cuda.synchronize()
 

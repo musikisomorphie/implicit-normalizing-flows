@@ -21,7 +21,7 @@ from wilds import get_dataset
 from wilds.common.data_loaders import get_train_loader, get_eval_loader
 
 
-def initialize_rxrx1_transform(is_training):
+def initialize_rxrx1_transform(img_sz, is_training):
     def standardize(x: torch.Tensor) -> torch.Tensor:
         mean = x.mean(dim=(1, 2))
         std = x.std(dim=(1, 2))
@@ -38,25 +38,17 @@ def initialize_rxrx1_transform(is_training):
         return x
     t_random_rotation = transforms.Lambda(lambda x: random_rotation(x))
 
+    transforms_ls = [transforms.Resize([img_sz, img_sz])]
     if is_training:
-        transforms_ls = [
-            # transforms.Resize([128, 128]),
-            t_random_rotation,
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            # t_standardize,
-        ]
-    else:
-        transforms_ls = [
-            # transforms.Resize([128, 128]),
-            transforms.ToTensor(),
-            # t_standardize,
-        ]
+        transforms_ls += [t_random_rotation,
+                          transforms.RandomHorizontalFlip(),
+                          transforms.RandomVerticalFlip()]
+    transforms_ls.append(transforms.ToTensor())
     transform = transforms.Compose(transforms_ls)
     return transform
 
 
-def initialize_scrc_transform(is_training):
+def initialize_scrc_transform(img_sz, is_training):
     angles = [0, 90, 180, 270]
 
     def random_rotation(x: torch.Tensor) -> torch.Tensor:
@@ -66,15 +58,14 @@ def initialize_scrc_transform(is_training):
         return x
     t_random_rotation = transforms.Lambda(lambda x: random_rotation(x))
 
+    transforms_ls = [transforms.Resize([img_sz, img_sz])]
     if is_training:
-        transforms_ls = [
-            t_random_rotation,
-            transforms.RandomHorizontalFlip(),
-        ]
-        transform = transforms.Compose(transforms_ls)
-        return transform
-    else:
-        return None
+        transforms_ls += [t_random_rotation,
+                          transforms.RandomHorizontalFlip(),
+                          transforms.RandomVerticalFlip()]
+
+    transform = transforms.Compose(transforms_ls)
+    return transform
 
 
 class PredNet(nn.Module):
@@ -604,15 +595,15 @@ def initialize_model(model_name,
 
 def data_prep(args):
     if args.dataset == 'rxrx1':
-        trn_trans = initialize_rxrx1_transform(True)
-        eval_trans = initialize_rxrx1_transform(False)
+        trn_trans = initialize_rxrx1_transform(args.imagesize, True)
+        eval_trans = initialize_rxrx1_transform(args.imagesize, False)
         dataset_kwargs = dict()
         split_scheme = 'official'
         num_chn = 3
         eval_data = ['val', 'test', 'id_test']
     elif args.dataset == 'scrc':
-        trn_trans = initialize_scrc_transform(True)
-        eval_trans = initialize_scrc_transform(False)
+        trn_trans = initialize_scrc_transform(args.imagesize, True)
+        eval_trans = initialize_scrc_transform(args.imagesize, False)
         if args.inp == 'i':
             img_chn = [1, 2, 3]
         elif args.inp == 'mi':
