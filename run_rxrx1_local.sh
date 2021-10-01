@@ -4,4 +4,4 @@ deepspeed --include=localhost:0 --master_port 50123 train_re_decouple.py --cuda 
     --env '201' --imagesize 128 --batchsize 8 \
     --nepochs 100 --nblocks 8-8-8-8 --factor-out --actnorm --symm-batchsize 64 \
     --task hybrid --nworkers 2 --eval-batchsize 16 --print-freq 120 --vis-freq 400 \
-    --fc-end False
+    --act elu --fc-end False

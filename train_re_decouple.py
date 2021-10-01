@@ -134,7 +134,7 @@ parser.add_argument('--optimizer', type=str,
                     choices=['adam', 'adamax', 'rmsprop', 'sgd'], default='adam')
 parser.add_argument('--scheduler', type=eval,
                     choices=[True, False], default=False)
-parser.add_argument('--lr', help='Learning rate', type=float, default=2e-4)
+parser.add_argument('--lr', help='Learning rate', type=float, default=1e-3)
 parser.add_argument('--wd', help='Weight decay', type=float, default=0)
 parser.add_argument('--warmup-iters', type=int, default=1000)
 parser.add_argument('--annealing-iters', type=int, default=0)

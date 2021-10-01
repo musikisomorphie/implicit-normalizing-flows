@@ -1,10 +1,10 @@
 {
-    "train_batch_size": 72,
+    "train_batch_size": 8,
     "zero_allow_untested_optimizer": true,
     "optimizer": {
         "type": "Adam",
         "params": {
-            "lr": 2e-4
+            "lr": 1e-3
         }
     }
 }
